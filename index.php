@@ -211,8 +211,26 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 			id_objektu = -1;
 			objekty = <?php echo (!empty($objekty) ? json_encode($objekty) : "[]");?>;
 
+			function reindex_rows () {
+				// Přerovná name="objekty[i][...]" podle pořadí řádků, aby server dostal konzistentní pole.
+				const rows = $("table#objekty tr[data-row='1']");
+				rows.each(function(idx){
+					const $tr = $(this);
+					$tr.attr("id", "objekt_" + idx);
+					$tr.attr("data-idx", idx);
+					$tr.find("td.cell_id").text(idx + 1);
+					$tr.find("input[name^='objekty']").each(function(){
+						const name = $(this).attr("name") || "";
+						const replaced = name.replace(/^objekty\[\d+\]/, "objekty[" + idx + "]");
+						$(this).attr("name", replaced);
+					});
+				});
+				id_objektu = rows.length - 1;
+			}
+
 			function smazat_radek_tabulky (objekt_id) {
 				$("#objekt_"+objekt_id).remove();
+				reindex_rows();
 			}
 
 			function pridej_radek_do_tabulky (par_id_objektu) {
@@ -222,16 +240,66 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				instances = (objekty[id_objektu] ? objekty[id_objektu]["instances"]["d"] : <?php echo MAXIMALNI_POCET_INSTANCI;?>);
 				const vysledny_pocet_instanci = (objekty[id_objektu] && objekty[id_objektu]["instances"]["r"]) || "";
 				$("table#objekty").append(
-					`<tr id="objekt_${id_objektu}">
-						<td>${id_objektu + 1}</td>
+					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
+						<td class="cell_id">${id_objektu + 1}</td>
 						<td><input type="number" name="objekty[${id_objektu}][x]" value="${x}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input type="number" name="objekty[${id_objektu}][y]" value="${y}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input class="instances" type="number" name="objekty[${id_objektu}][instances][d]" value="${instances}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" required="required" /></td>
-						<td><button type="button" onclick='javascript:smazat_radek_tabulky(${id_objektu});'>Smazat</button></td>
+						<td style="text-align:left;">
+							<div style="display:flex; gap:6px; flex-wrap:wrap;">
+								<button class="small row_action" type="button" data-action="up" title="Přesunout nahoru">↑</button>
+								<button class="small row_action" type="button" data-action="down" title="Přesunout dolů">↓</button>
+								<button class="small row_action" type="button" data-action="dup" title="Duplikovat">Duplikovat</button>
+								<button class="small row_action" type="button" data-action="del" title="Smazat">Smazat</button>
+							</div>
+						</td>
 						${objekty[id_objektu] ? `<td>${vysledny_pocet_instanci}</td>` : ""}
 					</tr>`
 				);
+				reindex_rows();
+			}
+
+			function get_form_state () {
+				const state = {
+					version: 1,
+					objekty: [],
+					nastaveni: {
+						rozprostrit_instance_v_ose_x: $("#rozprostrit_instance_v_ose_x").prop("checked") ? 1 : 0,
+						rozprostrit_instance_v_ose_y: $("#rozprostrit_instance_v_ose_y").prop("checked") ? 1 : 0,
+						rozprostrit_instance_po_cele_podlozce: $("#rozprostrit_instance_po_cele_podlozce").prop("checked") ? 1 : 0,
+						umistit_na_stred_v_ose_x: $("#umistit_na_stred_v_ose_x").prop("checked") ? 1 : 0,
+						umistit_na_stred_v_ose_y: $("#umistit_na_stred_v_ose_y").prop("checked") ? 1 : 0
+					}
+				};
+				$("table#objekty tr[data-row='1']").each(function(){
+					const $tr = $(this);
+					const x = $tr.find("input[name$='[x]']").val();
+					const y = $tr.find("input[name$='[y]']").val();
+					const z = $tr.find("input[name$='[z]']").val();
+					const d = $tr.find("input.instances").val();
+					state.objekty.push({ x: x, y: y, z: z, instances: { d: d } });
+				});
+				return state;
+			}
+
+			function set_form_state (state) {
+				// Vyčistí tabulku a vloží řádky podle JSONu (bez automatického výpočtu).
+				const objektyIn = Array.isArray(state?.objekty) ? state.objekty : [];
+				objekty = objektyIn;
+				id_objektu = -1;
+				$("table#objekty tr[data-row='1']").remove();
+				$.each(objektyIn, function(index){
+					pridej_radek_do_tabulky(index);
+				});
+				if (objektyIn.length === 0) pridej_radek_do_tabulky();
+
+				const n = state?.nastaveni || {};
+				$("#rozprostrit_instance_v_ose_x").prop("checked", !!n.rozprostrit_instance_v_ose_x);
+				$("#rozprostrit_instance_v_ose_y").prop("checked", !!n.rozprostrit_instance_v_ose_y);
+				$("#rozprostrit_instance_po_cele_podlozce").prop("checked", !!n.rozprostrit_instance_po_cele_podlozce);
+				$("#umistit_na_stred_v_ose_x").prop("checked", !!n.umistit_na_stred_v_ose_x);
+				$("#umistit_na_stred_v_ose_y").prop("checked", !!n.umistit_na_stred_v_ose_y);
 			}
 
       $(document).ready(function(){
@@ -280,6 +348,71 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 					params.set('objekty[0][z]', '100');
 					params.set('objekty[0][instances][d]', '99');
 					window.location.search = '?' + params.toString();
+				});
+
+				// Akce v řádcích (delegace)
+				$(document).on('click', 'button.row_action', function () {
+					const action = $(this).data('action');
+					const $tr = $(this).closest('tr');
+					if (!$tr.length) return;
+					if (action === 'del') {
+						$tr.remove();
+						if ($("table#objekty tr[data-row='1']").length === 0) pridej_radek_do_tabulky();
+						reindex_rows();
+						return;
+					}
+					if (action === 'dup') {
+						const $clone = $tr.clone(true);
+						$clone.insertAfter($tr);
+						reindex_rows();
+						return;
+					}
+					if (action === 'up') {
+						const $prev = $tr.prevAll("tr[data-row='1']").first();
+						if ($prev.length) $tr.insertBefore($prev);
+						reindex_rows();
+						return;
+					}
+					if (action === 'down') {
+						const $next = $tr.nextAll("tr[data-row='1']").first();
+						if ($next.length) $tr.insertAfter($next);
+						reindex_rows();
+						return;
+					}
+				});
+
+				// Import / Export JSON vstupu (bez DB)
+				function openModal() { $("#io_modal").removeAttr("hidden"); }
+				function closeModal() { $("#io_modal").attr("hidden","hidden"); }
+
+				$('#export_input').on('click', function () {
+					const st = get_form_state();
+					$("#io_title").text("Export vstupu (JSON)");
+					$("#io_text").val(JSON.stringify(st, null, 2));
+					$("#io_hint").text("Tento JSON si můžeš uložit nebo poslat dál. Importem se jen vyplní formulář.");
+					openModal();
+				});
+				$('#import_input').on('click', function () {
+					$("#io_title").text("Import vstupu (JSON)");
+					$("#io_text").val("");
+					$("#io_hint").text("Vlož JSON z exportu a klikni na Importovat.");
+					openModal();
+				});
+				$('#io_close').on('click', closeModal);
+				$('#io_copy').on('click', async function () {
+					const el = document.getElementById('io_text');
+					if (!el) return;
+					try { await navigator.clipboard.writeText(el.value); }
+					catch (e) { el.focus(); el.select(); document.execCommand('copy'); }
+				});
+				$('#io_import').on('click', function () {
+					let parsed = null;
+					try { parsed = JSON.parse($("#io_text").val() || ""); }
+					catch (e) { return setStatus("Nevalidní JSON"); }
+					set_form_state(parsed);
+					setStatus("Načteno");
+					closeModal();
+					$('#nastaveni').show();
 				});
 
 				$('#copy_json').on('click', async function () {
@@ -391,6 +524,38 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				box-shadow: 0 8px 20px rgba(37,99,235,0.25);
 				user-select: none;
 			}
+			#tiskova_podlozka .instance:hover {
+				outline: 3px solid rgba(14,165,233,0.35);
+				outline-offset: 2px;
+			}
+
+			.modal {
+				position: fixed;
+				inset: 0;
+				background: rgba(15, 23, 42, 0.55);
+				display: grid;
+				place-items: center;
+				padding: 16px;
+				z-index: 50;
+			}
+			.modal .panel {
+				width: min(92vw, 900px);
+				background: #fff;
+				border-radius: var(--radius);
+				border: 1px solid var(--border);
+				box-shadow: var(--shadow);
+				padding: 14px;
+			}
+			.modal .panel .top {
+				display: flex;
+				gap: 10px;
+				align-items: baseline;
+				justify-content: space-between;
+				margin-bottom: 8px;
+			}
+			.modal .panel h3 { margin: 0; font-size: 15px; }
+			.modal .hint { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+			#io_text { width: 100%; min-height: 220px; }
 			#tiskova_podlozka .instance small { opacity: 0.9; font-weight: 600; }
 
 			#json_textarea {
@@ -475,10 +640,27 @@ if (!empty($pocet_instanci_objektu)) {
 				<button class="ghost" id="save_local" type="button" title="Uloží aktuální odkaz (query) do prohlížeče">Uložit</button>
 				<button class="ghost" id="load_local" type="button" title="Načte uložený odkaz z prohlížeče">Načíst</button>
 				<button class="ghost" id="clear_local" type="button" title="Smaže uložené nastavení">Smazat</button>
+				<button class="ghost" id="export_input" type="button" title="Export vstupu (objekty + nastavení) do JSON">Export</button>
+				<button class="ghost" id="import_input" type="button" title="Import vstupu (objekty + nastavení) z JSON">Import</button>
 			  <button class="primary" type="submit">Vypočítat</button>
 				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
 			</div>
 		</form>
+
+		<div id="io_modal" class="modal" hidden="hidden">
+			<div class="panel">
+				<div class="top">
+					<h3 id="io_title">Import/Export</h3>
+					<button id="io_close" class="small" type="button">Zavřít</button>
+				</div>
+				<div id="io_hint" class="hint"></div>
+				<textarea id="io_text" placeholder='{"objekty":[...],"nastaveni":{...}}'></textarea>
+				<div class="toolbar" style="margin-top: 10px;">
+					<button id="io_copy" class="ghost" type="button">Kopírovat</button>
+					<button id="io_import" class="primary" type="button">Importovat</button>
+				</div>
+			</div>
+		</div>
 
 <?php
 if (!empty($chyby_v_rozmerech)) {
@@ -627,6 +809,9 @@ if (!empty($pos)) {
 		<div class="bed-wrap">
 			<div class="card">
 				<h2>Vizualizace</h2>
+				<div style="color: var(--muted); font-size: 13px; margin: 0 0 10px;">
+					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Hover pro detaily
+				</div>
 				<?php
 					$vizX = (isset($vysledek) && isset($vysledek["printer"]["x"]) ? (float)$vysledek["printer"]["x"] : (float)$tiskova_plocha["x"] - (float)$posun_zprava);
 					$vizY = (isset($vysledek) && isset($vysledek["printer"]["y"]) ? (float)$vysledek["printer"]["y"] : (float)$tiskova_plocha["y"]);
@@ -652,7 +837,10 @@ if (!empty($pos)) {
 				$bottom_pct = ($vizY > 0 ? ($iy_levy_dolni_roh / $vizY) * 100 : 0);
 				$w_pct = ($vizX > 0 ? ($ox / $vizX) * 100 : 0);
 				$h_pct = ($vizY > 0 ? ($oy / $vizY) * 100 : 0);
-				echo '			  <div class="instance" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="Objekt '.$o.' / instance '.$i.'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
+				$title = 'Objekt '.$o.' / instance '.$i."\n".
+					'Rozměr: '.format_cislo($ox, false, 2).'×'.format_cislo($oy, false, 2).'×'.format_cislo($oz, false, 2)." mm\n".
+					'Pozice (levý přední roh): '.format_cislo($ix_levy_dolni_roh, false, 2).' ; '.format_cislo($iy_levy_dolni_roh, false, 2).' mm';
+				echo '			  <div class="instance" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
 			}
 		}
 	}
