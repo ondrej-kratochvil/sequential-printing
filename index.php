@@ -2,6 +2,8 @@
 define("MAXIMALNI_POCET_INSTANCI", 99);
 define("MAXIMALNI_POCET_ITERACI", 99);
 
+require_once __DIR__ . "/src/SequentialPrintCalculator.php";
+
 /* Funkce */
 
 function is_decimal ($value) {
@@ -75,182 +77,17 @@ function array_msort($array, $cols) {
 	return $ret;
 }
 
-function nastav_zbyva_v_ose_Y () {
-	global $zbyva_v_ose_Y, $Y, $pozice_hrany_nejvzdalenejsiho_objektu;
-	$zbyva_v_ose_Y = ($Y - $pozice_hrany_nejvzdalenejsiho_objektu);
-}
+/* Nastavení tiskárny (výchozí – později půjde do DB) */
 
-function vypocitej_pozici_instanci () {
-	global $objekty, $objekty_serazene, $smer_X, $smer_Y, $X, $Y, $Xr, $Xl, $Yr, $rozprostrit_instance_v_ose_x, $rozprostrit_instance_v_ose_y, $omezeny_pocet_instanci_v_rade, $vodici_tyce_Z, $pos1, $pos2, $zbyva_v_ose_X, $vodici_tyce_Y, $datova_veta_pole, $pocet_instanci_objektu, $Xcount_pole, $posun_x1, $posun_y1, $pocet_instanci1, $pocet_rad1, $pozice_hrany_prvniho_objektu_v_rade, $pozice_hrany_nejvzdalenejsiho_objektu, $zbyva_v_ose_X_maximalne, $zbyva_v_ose_Y, $pocet_podlozek1, $Xcount1;
-	$pos1 = $pos2 = $zbyva_v_ose_X = $datova_veta_pole = $pocet_instanci_objektu = $Xcount_pole = [];
-	$posun_x1 = $posun_y1 = $pocet_instanci1 = $pocet_rad1 = $pozice_hrany_prvniho_objektu_v_rade = $pozice_hrany_nejvzdalenejsiho_objektu = $zbyva_v_ose_X_maximalne = $zbyva_v_ose_Y = 0;
-	$Xcount1 = 0;
-	$pocet_podlozek1 = $p1 = $x1 = $y1 = 1; // TODO předělat v závislosti na ID objektu; přidat možnost umístění na více podložek
-	foreach ($objekty_serazene as $id => $objekt) {
-		$i1 = $i2 = 0;
-		$o1 = $id + 1;
-		/* Uložím si rozměry objektu do proměnných */
-		$ox = $objekt["x"];
-		$oy = $objekt["y"];
-		$oz = $objekt["z"];
-		$pozadovany_pocet_instanci = (isset($objekt["instances"]["d"]) ? ($objekt["instances"]["d"] === "max" ? MAXIMALNI_POCET_INSTANCI : $objekt["instances"]["d"]) : 1);
-		$pocet_instanci_objektu[$o1] = 0;
-		for ($ci = 1; $ci <= $pozadovany_pocet_instanci; $ci++) {
-			$i1 = $i2;// Nastavím dočasné počítadlo instancí podle finálního počítadla instancí
-			$i1++; // Navýším dočasné počítadlo instancí
-			$X_mezera_mezi_instancemi = ($smer_X == "zleva_doprava" ? $Xl : $Xr);
-			/* Nastavím pozici X */
-			if ($smer_X == "zleva_doprava") {
-				$presahuje_podlozku_v_ose_X = (($ox + $posun_x1) > $X);
-				if ($presahuje_podlozku_v_ose_X or ($omezeny_pocet_instanci_v_rade and $x1 > $omezeny_pocet_instanci_v_rade)) { // Pokud by již instance přesahovala podložku v ose X
-					$y1++; // Navýším řadu
-					$x1 = 1; // Nastavím sloupec na počítační hodnotu
-					$posun_x1 = 0; // Vynuluji posun v ose X
-					$posun_y1 = (($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) > ($pozice_hrany_prvniho_objektu_v_rade + $Yr) ? ($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) : ($pozice_hrany_prvniho_objektu_v_rade + $Yr));
-				}
-				$ix = ($ox / 2) + $posun_x1; // Nastavím pozici X
-			}
-			else {
-				$presahuje_podlozku_v_ose_X = (($X - $ox - $posun_x1) < 0);
-				if ($presahuje_podlozku_v_ose_X or ($omezeny_pocet_instanci_v_rade and $x1 > $omezeny_pocet_instanci_v_rade)) { // Pokud by již instance přesahovala podložku v ose X
-					$y1++; // Navýším řadu
-					$x1 = 1; // Nastavím sloupec na počítační hodnotu
-					$posun_x1 = 0; // Vynuluji posun v ose X
-					$posun_y1 = (($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) > ($pozice_hrany_prvniho_objektu_v_rade + $Yr) ? ($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) : ($pozice_hrany_prvniho_objektu_v_rade + $Yr)); // Nastavím posun nové řady podle toho, co je dál, aby nenarazila hlava do prvního objektu v předchozí řadě, nebo vodící tyče do posledního objektu v předchozí řadě
-					//echo "(pozice_hrany_prvniho_objektu_v_rade + Yr) = ".($pozice_hrany_prvniho_objektu_v_rade + $Yr)."<br />";
-					//echo "(pozice_hrany_nejvzdalenejsiho_objektu - vodici_tyce_Y) = ".($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y)."<br />";
-					if (isset($pos1[$p1][($y1 - 1)][2])) {
-						$pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade = $pos1[$p1][($y1 - 1)][2]["X"] + ($pos1[$p1][($y1 - 1)][2]["x"] / 2);
-						$pozice_leve_hrany_x_tohoto_objektu = $X - $ox - $posun_x1;
-						if ($pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade < ($pozice_leve_hrany_x_tohoto_objektu - $Xl)) $posun_y1 = ($pozice_hrany_nejvzdalenejsiho_objektu + $Yr); // TODO sjednotit logiku výpočtu posunu Y
-					}
-					//echo "posun_y1 = ".$posun_y1."<br />";
-				}
-				$ix = $X - ($ox / 2) - $posun_x1; // Nastavím pozici X
-			}
-			// Střídání stran: když je v řadě jen 1 objekt, sudé řady začnu z opačné strany.
-			if ($omezeny_pocet_instanci_v_rade == 1 && $x1 == 1 && ($y1 % 2 == 0)) {
-				$ix = ($smer_X == "zleva_doprava" ? ($X - ($ox / 2)) : ($ox / 2));
-			}
-			//echo 'ix = '.$ix.'<br />';
-			/* Nastavím pozici Y */
-			if ($i1 > 1 and $x1 > 1 and $pos1[$p1][$y1][($x1 - 1)]["z"] > $vodici_tyce_Z and $pos1[$p1][$y1][($x1 - 1)]["y"] > $vodici_tyce_Y) { // Pokud by vodící tyče narazily do předchozího objektu
-				//echo "posun_y1 = ".$posun_y1."<br />";
-				$posun_y1 += ($pos1[$p1][$y1][($x1 - 1)]["y"] - $vodici_tyce_Y); // Nastavím posun v ose Y
-				//echo "posun_y1 = ".$posun_y1."<br />";
-			}
-			if ($smer_Y == "zepredu_dozadu") $iy = ($oy / 2) + $posun_y1;
-			else $iy = $Y - ($oy / 2) - $posun_y1; // TODO máme jen pozici vodících tyčí zepředu - potřebovali bychom pozici zezadu
-			//echo 'iy = ".$iy."<br />';
-			/* Pokud by objekt přesahoval podložku v ose Y, ukončím cyklus */
-			if (($iy + ($oy / 2)) > $Y) {
-				//echo "iy = ".$iy."<br />";
-				nastav_zbyva_v_ose_Y();
-				break(2);
-			}
-			$i2++; // Navýším finální počítadlo instancí
-			$pocet_instanci1++;
-			if ($y1 == 1) $Xcount1 = $pocet_instanci1; // Zajímá mě počet instancí v 1. řadě
-			/* Uložím hodnoty do pole */
-			$pos1[$p1][$y1][$x1] = [
-				"o" => $o1,
-				"i" => $i2,
-				"X" => $ix,
-				"Y" => $iy,
-				"x" => $ox,
-				"y" => $oy,
-				"z" => $oz
-			];
-			if (!isset($Xcount_pole[$y1])) $Xcount_pole[$y1] = 0;
-			$Xcount_pole[$y1]++;
-			if ($x1 == 1) $pocet_rad1++;
-			$posun_x1 += ($ox + $X_mezera_mezi_instancemi); // Nastavím posun v ose X pro následující instanci
-			$zbyva_v_ose_X[$y1] = ($X - ($posun_x1 - $X_mezera_mezi_instancemi));
-			if ($zbyva_v_ose_X[$y1] > $zbyva_v_ose_X_maximalne) $zbyva_v_ose_X_maximalne = $zbyva_v_ose_X[$y1];
-			if ($x1 == 1) $pozice_hrany_prvniho_objektu_v_rade = ($iy + ($oy / 2)); // Ukládám si pozici hrany prvního objektu v této řadě, abych ji uplatnil pro posuv následující řady
-			if ($pozice_hrany_nejvzdalenejsiho_objektu < ($iy + ($oy / 2))) $pozice_hrany_nejvzdalenejsiho_objektu = ($iy + ($oy / 2)); // Ukládám si pozici nejvzdálenější hrany v této řadě, abych ji uplatnil pro posuv následující řady
-			nastav_zbyva_v_ose_Y();
-			$pocet_instanci_objektu[$o1]++;
-			$objekty[$id]["instances"]["r"] = $pocet_instanci_objektu[$o1];
-			$x1++; // Navýším počítadlo instancí v ose X
-		}
-	}
-	//print_r($zbyva_v_ose_X);
-	//print_r($zbyva_v_ose_Y);
-	$pos2 = $pos1;
-	if ($zbyva_v_ose_X_maximalne or $zbyva_v_ose_Y) {
-		$pripocitam_v_ose_Y = ($zbyva_v_ose_Y && $pocet_rad1 > 1 ? ($zbyva_v_ose_Y / ($pocet_rad1 - 1)) : 0);
-		foreach ($pos2[$p1] as $y1 => $rada) {
-			$pocet_instanci_v_rade = count($rada);
-			$suda_rada = ($y1 % 2 == 0);
-			$cik_cak = ($omezeny_pocet_instanci_v_rade and $pocet_instanci_v_rade == 1 and $suda_rada); // dělat i v případě rovnoměrného rozprostření instancí po celé podložce, když je jen jeden objekt v sudé řadě
-			$pripocitam_v_ose_X = ($zbyva_v_ose_X_maximalne && $pocet_instanci_v_rade > 1 ? ($zbyva_v_ose_X[$y1] / ($pocet_instanci_v_rade - 1)) : 0);
-			foreach ($rada as $x1 => $objekt1) {
-				if ($rozprostrit_instance_v_ose_x and ($x1 > 1 or $cik_cak)) {
-					if ($smer_X == "zleva_doprava") $pos2[$p1][$y1][$x1]["X"] += $pripocitam_v_ose_X * ($cik_cak ? 1 : ($x1 - 1));
-					else $pos2[$p1][$y1][$x1]["X"] -= $pripocitam_v_ose_X * ($cik_cak ? 1 : ($x1 - 1));
-				}
-				if ($rozprostrit_instance_v_ose_y and $y1 > 1) {
-					if ($smer_Y == "zepredu_dozadu") $pos2[$p1][$y1][$x1]["Y"] += $pripocitam_v_ose_Y * ($y1 - 1);
-					else $pos2[$p1][$y1][$x1]["Y"] -= $pripocitam_v_ose_Y * ($y1 - 1);
-				}
-				$datova_veta_pole[] = [$pos2[$p1][$y1][$x1]["i"], round($pos2[$p1][$y1][$x1]["X"], 2), round($pos2[$p1][$y1][$x1]["Y"], 2)];
-			}
-		}
-	}
-}
-
-function prepocitej_s_rozprostrenim_po_cele_tiskove_podlozce ($par_pocet_instanci, $par_pocet_rad) {
-	global $omezeny_pocet_instanci_v_rade;
-	$omezeny_pocet_instanci_v_rade = ceil($par_pocet_instanci / $par_pocet_rad);
-	vypocitej_pozici_instanci();
-}
-
-function prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu ($par_pocet_instanci, $krome_techto_objektu, $nastavit_pomerny_pocet_vyslednych_instanci = false) {
-	global $objekty_serazene, $pomerny_pocet_vyslednych_instanci;
-	foreach ($objekty_serazene as $id => $objekt) {
-		$nastavovany_pocet_pozadovanych_instanci = ($nastavit_pomerny_pocet_vyslednych_instanci ? ($pomerny_pocet_vyslednych_instanci[$id] - $par_pocet_instanci) : $par_pocet_instanci);
-		if (!in_array($id, $krome_techto_objektu)) $objekty_serazene[$id]["instances"]["d"] = ($objekty[$id]["instances"]["d"] < $nastavovany_pocet_pozadovanych_instanci ? $objekty[$id]["instances"]["d"] : $nastavovany_pocet_pozadovanych_instanci);
-	}
-	vypocitej_pozici_instanci();
-}
-
-function vypocitej_prumerny_pocet_instanci () {
-	global $objekty, $pocet_objektu, $celkovy_pocet_pozadovanych_instanci, $celkovy_pocet_vyslednych_instanci, $prumerny_pocet_pozadovanych_instanci, $prumerny_pocet_vyslednych_instanci;
-  $celkovy_pocet_pozadovanych_instanci = $celkovy_pocet_vyslednych_instanci = 0;
-	foreach ($objekty as $id => $objekt) {
-		$celkovy_pocet_pozadovanych_instanci += $objekt["instances"]["d"];
-		$celkovy_pocet_vyslednych_instanci += $objekt["instances"]["r"];
-	}
-	$prumerny_pocet_pozadovanych_instanci = $celkovy_pocet_pozadovanych_instanci / $pocet_objektu;
-	$prumerny_pocet_vyslednych_instanci = $celkovy_pocet_vyslednych_instanci / $pocet_objektu;
-}
-
-function nastav_pomerny_pocet_vyslednych_instanci () {
-	global $objekty, $prumerny_pocet_pozadovanych_instanci, $prumerny_pocet_vyslednych_instanci, $pomerny_pocet_vyslednych_instanci;
-	foreach ($objekty as $id => $objekt) {
-		$pomerny_pocet_vyslednych_instanci[$id] = $objekt["instances"]["d"] / $prumerny_pocet_pozadovanych_instanci * $prumerny_pocet_vyslednych_instanci;
-	}
-}
-
-function nastav_pole_krome_techto_objektu () {
-	global $byla_umistena_alespon_jedna_instance_objektu, $krome_techto_objektu;
-	$krome_techto_objektu = [];
-	foreach ($byla_umistena_alespon_jedna_instance_objektu as $id => $objekt) {
-		$krome_techto_objektu[] = $id;
-	}
-}
-
-/* Nastavení tiskárny */
-
-$tiskova_plocha["x"] = $X = 180;
-$tiskova_plocha["y"] = $Y = 180;
-$tiskova_plocha["z"] = $Z = 180;
+$tiskova_plocha = [
+	"x" => 180,
+	"y" => 180,
+	"z" => 180
+];
 $posun_zprava = 1; // Korekce pro PRUSA MINI, kdy objekt umístění zcela vpravo má deformovanou stěnu
-$X = $X - $posun_zprava;
-$Xr = "12";//10 - pro objekty krátké v ose Y
+$Xr = "12"; // 10 - pro objekty krátké v ose Y
 $Xl = "36.5";
-$Yr = "15.5";//29
+$Yr = "15.5"; // 29
 $Yl = "15.5";
 $vodici_tyce_Z = 21;
 $vodici_tyce_Y = "17.4";
@@ -258,201 +95,74 @@ $vodici_tyce_Y = "17.4";
 $smer_X = ($Xl <= $Xr ? "zleva_doprava" : "zprava_doleva");
 $smer_Y = ($Yl <= $Yr ? "zepredu_dozadu" : "zezadu_dopredu");
 
-$rozprostrit_instance_po_cele_podlozce = (empty($_GET) or (isset($_GET["rozprostrit_instance_po_cele_podlozce"]) and $_GET["rozprostrit_instance_po_cele_podlozce"]));
-$rozprostrit_instance_v_ose_x = (empty($_GET) or (isset($_GET["rozprostrit_instance_v_ose_x"]) and $_GET["rozprostrit_instance_v_ose_x"]));
-$rozprostrit_instance_v_ose_y = (empty($_GET) or (isset($_GET["rozprostrit_instance_v_ose_y"]) and $_GET["rozprostrit_instance_v_ose_y"]));
-$umistit_na_stred_v_ose_x = (!empty($_GET) and (isset($_GET["umistit_na_stred_v_ose_x"]) and $_GET["umistit_na_stred_v_ose_x"]));
-$umistit_na_stred_v_ose_y = (!empty($_GET) and (isset($_GET["umistit_na_stred_v_ose_y"]) and $_GET["umistit_na_stred_v_ose_y"]));
+/* Nastavení (UI) */
+$rozprostrit_instance_po_cele_podlozce = (empty($_GET) || (isset($_GET["rozprostrit_instance_po_cele_podlozce"]) && $_GET["rozprostrit_instance_po_cele_podlozce"]));
+$rozprostrit_instance_v_ose_x = (empty($_GET) || (isset($_GET["rozprostrit_instance_v_ose_x"]) && $_GET["rozprostrit_instance_v_ose_x"]));
+$rozprostrit_instance_v_ose_y = (empty($_GET) || (isset($_GET["rozprostrit_instance_v_ose_y"]) && $_GET["rozprostrit_instance_v_ose_y"]));
+$umistit_na_stred_v_ose_x = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_ose_x"]) && $_GET["umistit_na_stred_v_ose_x"]));
+$umistit_na_stred_v_ose_y = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_ose_y"]) && $_GET["umistit_na_stred_v_ose_y"]));
 
-/* Objekty - TODO předělat na zadávání přes formulář (hotovo), možná i uložení do DB (přes Adinistraci stran - 1) Vložení objektů, Vložení sady, Provazba mezi sadou, objektem a zadání počtu instancí */
-
+/* Objekty (z UI/GET) */
 $objekty = [];
-
-/* Načtení objektů z GETu */
-if (isset($_GET["objekty"]) and is_array($_GET["objekty"]) and !empty($_GET["objekty"])) {
+if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objekty"])) {
 	$objekty = $_GET["objekty"];
-	/* Ošetření vstupních hodnot */
 	foreach ($objekty as $key => $objekt) {
 		foreach ($objekt as $key1 => $hodnota) {
 			if (is_string($hodnota)) $objekty[$key][$key1] = str_replace(",", ".", $hodnota);
 		}
 	}
 }
-//print_r($objekty);
 
-$pocet_objektu = count($objekty);
+/* Výpočet */
+$pos = $objekty_serazene = $datova_veta_pole = $Xcount_pole = $zbyva_v_ose_X = [];
+$zbyva_v_ose_Y = 0;
+$pocet_instanci = $pocet_rad = $pocet_podlozek = $Xcount = 0;
+$Xcount_min = $Xcount_max = 0;
+$text_nad_tabulkou = "";
+$datova_veta_json = "[]";
 
-/* Upravení objektů */
-if ($pocet_objektu > 0) {
-	$objekty_upravene = $chyby_v_rozmerech = [];
-	foreach ($objekty as $id => $objekt) {
-		foreach ($objekt as $parametr => $hodnota) {
-			$hodnota_upravena = $hodnota;
-			if (in_array($parametr, ["x", "y", "z"])) {
-				$hodnota_upravena += "0.01"; // kvůli možnému zaokrouhlení rozměru objektu v PrusaSliceru směrem dolů
-				if ($hodnota_upravena > $tiskova_plocha[$parametr]) {
-					$chyby_v_rozmerech[$id][$parametr] = $hodnota_upravena;
-					continue(2);
-				}
-			}
-			$objekty_upravene[$id][$parametr] = $hodnota_upravena;
-		}
-	}
-}
+if (!empty($objekty)) {
+	$calculator = new SequentialPrintCalculator(
+		[
+			"x" => $tiskova_plocha["x"],
+			"y" => $tiskova_plocha["y"],
+			"z" => $tiskova_plocha["z"],
+			"posun_zprava" => $posun_zprava,
+			"Xr" => $Xr,
+			"Xl" => $Xl,
+			"Yr" => $Yr,
+			"Yl" => $Yl,
+			"vodici_tyce_Z" => $vodici_tyce_Z,
+			"vodici_tyce_Y" => $vodici_tyce_Y
+		],
+		[
+			"rozprostrit_instance_po_cele_podlozce" => $rozprostrit_instance_po_cele_podlozce,
+			"rozprostrit_instance_v_ose_x" => $rozprostrit_instance_v_ose_x,
+			"rozprostrit_instance_v_ose_y" => $rozprostrit_instance_v_ose_y
+		]
+	);
 
-if (!empty($objekty_upravene)) {
-	/* Seřazení objektů od nejnižších - TODO řadit od nejnižších v rámci řady, další řady mohou začínat nižším objektem než je poslední objekt v předešlé řadě */
-	$objekty_serazene = array_msort($objekty_upravene, array('z' => SORT_ASC, 'y' => SORT_ASC, 'x' => SORT_ASC));
+	$vysledek = $calculator->calculate($objekty);
 
-	$W = $objekty_serazene[0]["x"];
-	$L = $objekty_serazene[0]["y"];
-	$H = $objekty_serazene[0]["z"];
-
-	/* Počet objektů v ose X */
-	$Xcount = 0;
-	$Xcount = (int)(($X - $W) / ($W + $Xr)) + 1;
-	//echo 'Xcount = '.$Xcount.'<br />';
-
-	/* Počet objektů v ose Y */
-	$Ycount = 0;
-	$Ycount = (int)(($Y - $L) / ($L + $Yr)) + 1;
-	//echo 'Ycount = '.$Ycount.'<br />';
-	$pocet_instanci0 = $Xcount * $Ycount;
-
-	/* Rovnoměrné rozložení objektů v ose X - minimalizuje se možnost kolize tiskové hlavy s již vytištěnými objekty */
-	$Xr1 = ($X - ($W * $Xcount)) / ($Xcount - 1);
-	$Xr1 = (int)($Xr1 * 100) / 100;
-	//echo 'Xr1 = '.$Xr1.'<br />';
-
-	/* Rovnoměrné rozložení objektů v ose Y - minimalizuje se možnost kolize tiskové hlavy s již vytištěnými objekty */
-	$Yr1 = ($Y - ($L * $Ycount)) / ($Ycount - 1);
-	$Yr1 = (int)($Yr1 * 100) / 100;
-	//echo 'Yr1 = '.$Yr1.'<br />';
-
-	/* Zjištění pozic objektů/instancí a počtu instancí */
-	$pos = [];
-	$i = $posun_y = $pocet_instanci = $pocet_rad = 0;
-	$pocet_podlozek = $p = $o = 1; // TODO předělat v závislosti na ID objektu; přidat možnost umístění na více podložek
-	for ($y = 1; $y <= $Ycount; $y++) {
-		//echo 'y = '.$y.'<br />';
-		for ($x = 1; $x <= $Xcount; $x++) {
-			$i++;
-			if ($i > 1 and $x > 1 and $H > $vodici_tyce_Z and $L > $vodici_tyce_Y) {
-				$posun_y += ($L - $vodici_tyce_Y);
-			}
-			if ($smer_X == "zleva_doprava") $ix = ($W / 2) + ($x - 1) * ($W + $Xr1);
-			else $ix = $X - ($W / 2) - ($x - 1) * ($W + $Xr1);
-			//echo 'ix = '.$ix.'<br />';
-			if ($smer_Y == "zepredu_dozadu") $iy = ($L / 2) + ($y - 1) * ($L + ($posun_y > 0 ? $Yr : $Yr1)) + $posun_y;
-			else $iy = $Y - ($L / 2) - ($y - 1) * ($L + ($posun_y > 0 ? $Yr : $Yr1)) - $posun_y;
-			//echo 'iy = ".$iy."<br />';
-			if (($iy + ($L / 2)) > $Y) {
-				break(2);
-			}
-			$pocet_instanci++;
-			$pos[$p][$y][$x] = [
-				"o" => $o,
-				"i" => $i,
-				"X" => $ix,
-				"Y" => $iy
-			];
-			if ($x == 1) $pocet_rad++;
-		}
-	}
-
-	$omezeny_pocet_instanci_v_rade = 0;
-
-	vypocitej_pozici_instanci();
-
-	$id_prvniho_objektu = array_key_first($objekty);
-	$byly_umisteny_vsechny_pozadovane_instance_vsech_objektu = $byly_umisteny_vsechny_pozadovane_nemaximalni_instance_prvniho_objektu = true;
-	$byly_umisteny_vsechny_pozadovane_instance_objektu = $byla_umistena_alespon_jedna_instance_objektu = [];
-	foreach ($objekty as $id => $objekt) {
-		if ($objekt["instances"]["r"] < $objekt["instances"]["d"]) {
-			$byly_umisteny_vsechny_pozadovane_instance_vsech_objektu = false;
-			if ($id == $id_prvniho_objektu and $objekt["instances"]["d"] < MAXIMALNI_POCET_INSTANCI) $byly_umisteny_vsechny_pozadovane_nemaximalni_instance_prvniho_objektu = false;
-			$byly_umisteny_vsechny_pozadovane_instance_objektu[$id] = false;
-			if ($objekt["instances"]["r"] == 0) $byla_umistena_alespon_jedna_instance_objektu[$id] = false;
-		}
-	}
-	if (!$byly_umisteny_vsechny_pozadovane_nemaximalni_instance_prvniho_objektu) {
-		$krome_techto_objektu = [$id_prvniho_objektu];
-		prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(0, $krome_techto_objektu); // nastavím ostatním objektům nulový počet požadovaných instancí
-		$maximalni_mozny_pocet_instanci_prvniho_objektu = $objekty[$id_prvniho_objektu]["instances"]["r"];
-		if ($maximalni_mozny_pocet_instanci_prvniho_objektu > 0) { // už se mi podařilo umístit všechny možné instance prvního objektu
-			for ($i = 1; $i <= MAXIMALNI_POCET_ITERACI; $i++) { // budu dalším objektům postupně přidávat počet požadovaných instancí, zda se ještě vlezou na podložku
-				prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu($i, $krome_techto_objektu);
-			  if ($objekty[$id_prvniho_objektu]["instances"]["r"] < $maximalni_mozny_pocet_instanci_prvniho_objektu) { // narazil jsem na limit, už mám méně instancí prvního objektu, vrátím se o krok zpět
-					prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(($i - 1), $krome_techto_objektu);
-					break;
-				}
-			}
-		}
-	}
-	elseif (!empty($byla_umistena_alespon_jedna_instance_objektu)) {
-		vypocitej_prumerny_pocet_instanci();
-		nastav_pomerny_pocet_vyslednych_instanci();
-		nastav_pole_krome_techto_objektu();
-		prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(0, $krome_techto_objektu, true); // nastavím ostatním objektům nulový počet požadovaných instancí
-		for ($i = 1; $i <= MAXIMALNI_POCET_ITERACI; $i++) { // budu dalším objektům postupně snižovat počet požadovaných instancí, zda dosáhnu poměrného počtu vysledných instancí
-			vypocitej_prumerny_pocet_instanci();
-			nastav_pomerny_pocet_vyslednych_instanci();
-		  //var_dump($i);
-			//var_dump($pomerny_pocet_vyslednych_instanci[$id]);
-			$dosahuje_kazdy_objekt_pomerneho_poctu_vyslednych_instanci = true;
-			$objekt_jiz_presahuje_pomerny_pocet_vyslednych_instanci = false;
-			foreach ($byla_umistena_alespon_jedna_instance_objektu as $id => $objekt) {
-				if ($objekty[$id]["instances"]["r"] < $pomerny_pocet_vyslednych_instanci[$id]) {
-					//var_dump($objekty[$id]["instances"]["r"]);
-					//var_dump($pomerny_pocet_vyslednych_instanci[$id]);
-					$dosahuje_kazdy_objekt_pomerneho_poctu_vyslednych_instanci = false;
-					break;
-				}
-				elseif ($objekty[$id]["instances"]["r"] > $pomerny_pocet_vyslednych_instanci[$id]) {
-					//var_dump($objekty[$id]["instances"]["r"]);
-					//var_dump($pomerny_pocet_vyslednych_instanci[$id]);
-					$objekt_jiz_presahuje_pomerny_pocet_vyslednych_instanci = true;
-					break;
-				}
-			}
-			if ($dosahuje_kazdy_objekt_pomerneho_poctu_vyslednych_instanci) {
-				if ($objekt_jiz_presahuje_pomerny_pocet_vyslednych_instanci) {
-					//prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(($i - 1), $krome_techto_objektu, true); // vrátim se o krok zpět
-					prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(0, $krome_techto_objektu, true); // vrátim se o krok zpět
-					//var_dump("ano");
-				}
-				break;
-			}
-			else prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu($i, $krome_techto_objektu, true); // snížím ostatním objektům počet požadovaných instancí
-		}
-	}
-
-	if ($rozprostrit_instance_po_cele_podlozce) {
-		$pocet_instanci_zaloha = $pocet_instanci1;
-		for ($i = $pocet_rad1; $i <= MAXIMALNI_POCET_ITERACI; $i++) { // začnu vypočtenými řadami a budu přidávat
-			prepocitej_s_rozprostrenim_po_cele_tiskove_podlozce($pocet_instanci_zaloha, $i); // přepočítám
-			if ($pocet_instanci1 < $pocet_instanci_zaloha) { // jakmile narazím, že už se na podložku nevleze tolik instancí, kolik na začátku, vrátím se o jednu řadu zpět a ukončím přepočet
-				prepocitej_s_rozprostrenim_po_cele_tiskove_podlozce($pocet_instanci_zaloha, ($i - 1));
-				break;
-			}
-		}
-	}
-
+	$objekty = $vysledek["objekty"];
+	$objekty_serazene = $vysledek["objekty_serazene"];
+	$pos = $vysledek["pos"];
+	$datova_veta_pole = $vysledek["datova_veta_pole"];
 	$datova_veta_json = json_encode($datova_veta_pole);
-	//print_r($objekty);
-	//print_r($pos);
-	//print_r($pos1);
-	//print_r($pos2);
-	//$pos = $pos1; // Použiji nový způsob výpočtu
-	$pos = $pos2; // Použiji nový způsob výpočtu včetně rovnoměrného rozmístění objektů po celé podložce
-	$pocet_instanci = $pocet_instanci1;
-	$pocet_rad = $pocet_rad1;
-	$pocet_podlozek = $pocet_podlozek1;
-	$Xcount = $Xcount1;
-	$Xcount_min = min($Xcount_pole);
-	$Xcount_max = max($Xcount_pole);
-	$Xcount_string = ($Xcount_min == $Xcount_max ? $Xcount_max : ($Xcount_min."&ndash;".$Xcount_max));
-	$text_nad_tabulkou = 'Na podložku se '.sklonovani($pocet_instanci, "vleze", "vlezou", "vleze").' <strong>'.$pocet_instanci.'</strong> '.sklonovani($pocet_instanci, "instance", "instance", "instancí").' ('.$Xcount_string.' '.sklonovani($Xcount_max, "instance", "instance", "instancí").' '.sklonovani($pocet_rad, "v", "ve", "v").' '.$pocet_rad.' '.sklonovani($pocet_rad, "řadě", "řadách", "řadách").').';
+	$zbyva_v_ose_X = $vysledek["zbyva_v_ose_X"];
+	$zbyva_v_ose_Y = $vysledek["zbyva_v_ose_Y"];
+	$pocet_instanci = $vysledek["pocet_instanci"];
+	$pocet_rad = $vysledek["pocet_rad"];
+	$pocet_podlozek = $vysledek["pocet_podlozek"];
+	$Xcount = $vysledek["Xcount"];
+	$Xcount_pole = $vysledek["Xcount_pole"];
+	$Xcount_min = $vysledek["Xcount_min"];
+	$Xcount_max = $vysledek["Xcount_max"];
+
+	if ($pocet_instanci > 0) {
+		$Xcount_string = ($Xcount_min == $Xcount_max ? $Xcount_max : ($Xcount_min."&ndash;".$Xcount_max));
+		$text_nad_tabulkou = 'Na podložku se '.sklonovani($pocet_instanci, "vleze", "vlezou", "vleze").' <strong>'.$pocet_instanci.'</strong> '.sklonovani($pocet_instanci, "instance", "instance", "instancí").' ('.$Xcount_string.' '.sklonovani($Xcount_max, "instance", "instance", "instancí").' '.sklonovani($pocet_rad, "v", "ve", "v").' '.$pocet_rad.' '.sklonovani($pocet_rad, "řadě", "řadách", "řadách").').';
+	}
 }
 
 /* Vypsání HTML */

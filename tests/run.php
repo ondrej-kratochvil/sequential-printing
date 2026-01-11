@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') header('Content-Type: text/plain; charset=UTF-8');
 
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'SequentialPrintCalculator.php';
+
 function fail(string $message): void {
     echo "FAIL: {$message}\n";
     if (PHP_SAPI !== 'cli') http_response_code(500);
@@ -23,28 +25,27 @@ function ok(string $message): void {
 }
 
 function runScenarioCli(array $get): array {
-    $workspaceRoot = dirname(__DIR__);
-    $indexPath = $workspaceRoot . DIRECTORY_SEPARATOR . 'index.php';
-
-    $payload = var_export($get, true);
-    $code = <<<PHP
-        \$_GET = {$payload};
-        ob_start();
-        include "{$indexPath}";
-        ob_end_clean();
-        echo json_encode([
-            "count" => \$pocet_instanci1 ?? null,
-            "positions" => \$datova_veta_pole ?? null,
-        ]);
-        PHP;
-
-    $cmd = 'php -r ' . escapeshellarg($code);
-    $out = shell_exec($cmd);
-    if ($out === null || $out === '') fail("Scénář selhal: prázdný výstup z `{$cmd}`");
-
-    $decoded = json_decode($out, true);
-    if (!is_array($decoded)) fail("Scénář selhal: nevalidní JSON výstup: {$out}");
-    return $decoded;
+    // CLI i web poběží stejně (bez shell_exec), jen CLI má plný balík testů.
+    $calc = new SequentialPrintCalculator(
+        [
+            "x" => 180, "y" => 180, "z" => 180,
+            "posun_zprava" => 1,
+            "Xr" => 12, "Xl" => 36.5,
+            "Yr" => 15.5, "Yl" => 15.5,
+            "vodici_tyce_Z" => 21,
+            "vodici_tyce_Y" => 17.4,
+        ],
+        [
+            "rozprostrit_instance_po_cele_podlozce" => true,
+            "rozprostrit_instance_v_ose_x" => true,
+            "rozprostrit_instance_v_ose_y" => true,
+        ]
+    );
+    $res = $calc->calculate(isset($get["objekty"]) ? $get["objekty"] : []);
+    return [
+        "count" => $res["pocet_instanci"],
+        "positions" => $res["datova_veta_pole"],
+    ];
 }
 
 function assertSame($expected, $actual, string $label): void {
@@ -84,28 +85,21 @@ if (PHP_SAPI === 'cli') {
     exit(0);
 }
 
-// Web režim: bez refaktoru výpočtu nejde v jednom requestu bezpečně spustit více scénářů
-// (index.php není knihovna, je to skript s globály + HTML výstupem).
+// Web režim: 1 scénář na request.
 $scenario = $_GET['scenario'] ?? 'basic3';
-$scenarioGet = match ($scenario) {
-    'basic3' => [
+$scenarioGet = null;
+if ($scenario === 'basic3') {
+    $scenarioGet = [
         "objekty" => [
             ["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]],
         ],
-    ],
-    default => null,
-};
+    ];
+}
 if (!is_array($scenarioGet)) fail("Neznámý scenario. Použij ?scenario=basic3");
 
-$oldGet = $_GET;
-$_GET = $scenarioGet;
-ob_start();
-include dirname(__DIR__) . DIRECTORY_SEPARATOR . 'index.php';
-ob_end_clean();
-$_GET = $oldGet;
-
-assertSame(3, $pocet_instanci1 ?? null, "Počet instancí pro 50×50×100 (d=3)");
-assertTrue(is_array($datova_veta_pole ?? null) && count($datova_veta_pole) === 3, "Pozice musí být pole o délce 3");
+$res = runScenarioCli($scenarioGet);
+assertSame(3, $res["count"], "Počet instancí pro 50×50×100 (d=3)");
+assertTrue(is_array($res["positions"]) && count($res["positions"]) === 3, "Pozice musí být pole o délce 3");
 ok("Základní scénář (3 instance) vrací 3 pozice.");
 ok("ALL OK");
 

@@ -1,0 +1,592 @@
+<?php
+/**
+ * Sekvenční tisk – výpočet rozložení instancí.
+ *
+ * Cíl refaktoru: oddělit výpočet od HTML, aby šel jednoduše testovat a volat z API.
+ *
+ * Kompatibilita: PHP 7.4+ (bez Composeru).
+ */
+
+class SequentialPrintCalculator
+{
+    public const MAXIMALNI_POCET_INSTANCI = 99;
+    public const MAXIMALNI_POCET_ITERACI = 99;
+
+    /** @var array */
+    private $printer;
+
+    /** @var array */
+    private $options;
+
+    /** @var array */
+    private $objekty = [];
+
+    /** @var array */
+    private $objektySerazene = [];
+
+    /** @var array */
+    private $pos1 = [];
+
+    /** @var array */
+    private $pos2 = [];
+
+    /** @var array */
+    private $zbyvaVOseX = [];
+
+    /** @var float */
+    private $zbyvaVOseY = 0.0;
+
+    /** @var float */
+    private $zbyvaVOseXMaximalne = 0.0;
+
+    /** @var array */
+    private $datovaVetaPole = [];
+
+    /** @var array */
+    private $pocetInstanciObjektu = [];
+
+    /** @var array */
+    private $XcountPole = [];
+
+    /** @var float */
+    private $posunX1 = 0.0;
+
+    /** @var float */
+    private $posunY1 = 0.0;
+
+    /** @var int */
+    private $pocetInstanci1 = 0;
+
+    /** @var int */
+    private $pocetRad1 = 0;
+
+    /** @var float */
+    private $poziceHranyPrvnihoObjektuVRade = 0.0;
+
+    /** @var float */
+    private $poziceHranyNejvzdalenejsihoObjektu = 0.0;
+
+    /** @var int */
+    private $pocetPodlozek1 = 1;
+
+    /** @var int */
+    private $Xcount1 = 0;
+
+    /** @var int */
+    private $omezenyPocetInstanciVRade = 0;
+
+    /** @var array */
+    private $pomernyPocetVyslednychInstanci = [];
+
+    /** @var array */
+    private $bylaUmistenaAlesponJednaInstanceObjektu = [];
+
+    /** @var array */
+    private $kromeTechtoObjektu = [];
+
+    public function __construct(array $printer, array $options = [])
+    {
+        $this->printer = $this->normalizePrinter($printer);
+        $this->options = $this->normalizeOptions($options);
+    }
+
+    /**
+     * @param array $objekty Input objekty ve tvaru jako z GET (včetně instances[d]).
+     * @return array Výsledek výpočtu (pozice, metadata, aktualizované objekty).
+     */
+    public function calculate(array $objekty): array
+    {
+        $this->resetState();
+
+        $this->objekty = $this->sanitizeObjects($objekty);
+        $this->objektySerazene = $this->sortObjectsStableByZyx($this->objekty);
+
+        if (empty($this->objektySerazene)) {
+            return $this->result([]);
+        }
+
+        // Inicializační výpočet (nastaví instances[r] v $this->objekty a pozice)
+        $this->vypocitejPoziciInstanci();
+
+        $idPrvnihoObjektu = $this->firstKey($this->objekty);
+        $bylyUmistenyVsechnyPozadovaneInstanceVsechObjektu = true;
+        $bylyUmistenyVsechnyPozadovaneNemaximalniInstancePrvnihoObjektu = true;
+        $bylyUmistenyVsechnyPozadovaneInstanceObjektu = [];
+        $this->bylaUmistenaAlesponJednaInstanceObjektu = [];
+
+        foreach ($this->objekty as $id => $objekt) {
+            $d = isset($objekt['instances']['d']) ? $objekt['instances']['d'] : 1;
+            $r = isset($objekt['instances']['r']) ? $objekt['instances']['r'] : 0;
+            if ($r < $d) {
+                $bylyUmistenyVsechnyPozadovaneInstanceVsechObjektu = false;
+                if ($id === $idPrvnihoObjektu && $d < self::MAXIMALNI_POCET_INSTANCI) {
+                    $bylyUmistenyVsechnyPozadovaneNemaximalniInstancePrvnihoObjektu = false;
+                }
+                $bylyUmistenyVsechnyPozadovaneInstanceObjektu[$id] = false;
+                if ($r === 0) $this->bylaUmistenaAlesponJednaInstanceObjektu[$id] = false;
+            }
+        }
+
+        // 1) Když se nevejde přesný počet prvního objektu, maximalizuj první a zkoušej přidávat další.
+        if (!$bylyUmistenyVsechnyPozadovaneNemaximalniInstancePrvnihoObjektu) {
+            $this->kromeTechtoObjektu = [$idPrvnihoObjektu];
+            $this->prepocitejSUpravouPozadovanehoPoctuInstanciObjektu(0, $this->kromeTechtoObjektu);
+            $maximalniMoznyPocetInstanciPrvnihoObjektu = $this->getObjektR($idPrvnihoObjektu);
+            if ($maximalniMoznyPocetInstanciPrvnihoObjektu > 0) {
+                for ($i = 1; $i <= self::MAXIMALNI_POCET_ITERACI; $i++) {
+                    $this->prepocitejSUpravouPozadovanehoPoctuInstanciObjektu($i, $this->kromeTechtoObjektu);
+                    if ($this->getObjektR($idPrvnihoObjektu) < $maximalniMoznyPocetInstanciPrvnihoObjektu) {
+                        $this->prepocitejSUpravouPozadovanehoPoctuInstanciObjektu(($i - 1), $this->kromeTechtoObjektu);
+                        break;
+                    }
+                }
+            }
+        }
+        // 2) Jinak – poměrné rozdělení (pokud se něco nevešlo).
+        elseif (!empty($this->bylaUmistenaAlesponJednaInstanceObjektu)) {
+            $this->vypocitejPrumernyPocetInstanci();
+            $this->nastavPomernyPocetVyslednychInstanci();
+            $this->nastavPoleKromeTechtoObjektu();
+            $this->prepocitejSUpravouPozadovanehoPoctuInstanciObjektu(0, $this->kromeTechtoObjektu, true);
+
+            for ($i = 1; $i <= self::MAXIMALNI_POCET_ITERACI; $i++) {
+                $this->vypocitejPrumernyPocetInstanci();
+                $this->nastavPomernyPocetVyslednychInstanci();
+
+                $dosahujeKazdyObjektPomernehoPoctuVyslednychInstanci = true;
+                $objektJizPresahujePomernyPocetVyslednychInstanci = false;
+
+                foreach ($this->bylaUmistenaAlesponJednaInstanceObjektu as $id => $_) {
+                    $r = $this->getObjektR($id);
+                    $target = isset($this->pomernyPocetVyslednychInstanci[$id]) ? $this->pomernyPocetVyslednychInstanci[$id] : 0;
+                    if ($r < $target) {
+                        $dosahujeKazdyObjektPomernehoPoctuVyslednychInstanci = false;
+                        break;
+                    } elseif ($r > $target) {
+                        $objektJizPresahujePomernyPocetVyslednychInstanci = true;
+                        break;
+                    }
+                }
+
+                if ($dosahujeKazdyObjektPomernehoPoctuVyslednychInstanci) {
+                    if ($objektJizPresahujePomernyPocetVyslednychInstanci) {
+                        $this->prepocitejSUpravouPozadovanehoPoctuInstanciObjektu(0, $this->kromeTechtoObjektu, true);
+                    }
+                    break;
+                }
+
+                $this->prepocitejSUpravouPozadovanehoPoctuInstanciObjektu($i, $this->kromeTechtoObjektu, true);
+            }
+        }
+
+        // Rozprostření po celé podložce
+        if ($this->options['rozprostrit_instance_po_cele_podlozce']) {
+            $pocetInstanciZaloha = $this->pocetInstanci1;
+            for ($i = $this->pocetRad1; $i <= self::MAXIMALNI_POCET_ITERACI; $i++) {
+                $this->prepocitejSRozprostrenimPoCeleTiskovePodlozce($pocetInstanciZaloha, $i);
+                if ($this->pocetInstanci1 < $pocetInstanciZaloha) {
+                    $this->prepocitejSRozprostrenimPoCeleTiskovePodlozce($pocetInstanciZaloha, ($i - 1));
+                    break;
+                }
+            }
+        }
+
+        // Finální pos
+        $pos = $this->pos2;
+
+        return $this->result($pos);
+    }
+
+    private function resetState(): void
+    {
+        $this->pos1 = $this->pos2 = $this->zbyvaVOseX = $this->datovaVetaPole = $this->pocetInstanciObjektu = $this->XcountPole = [];
+        $this->posunX1 = $this->posunY1 = 0.0;
+        $this->pocetInstanci1 = $this->pocetRad1 = 0;
+        $this->poziceHranyPrvnihoObjektuVRade = $this->poziceHranyNejvzdalenejsihoObjektu = 0.0;
+        $this->zbyvaVOseXMaximalne = $this->zbyvaVOseY = 0.0;
+        $this->pocetPodlozek1 = 1;
+        $this->Xcount1 = 0;
+        $this->omezenyPocetInstanciVRade = 0;
+        $this->pomernyPocetVyslednychInstanci = [];
+        $this->bylaUmistenaAlesponJednaInstanceObjektu = [];
+        $this->kromeTechtoObjektu = [];
+    }
+
+    private function normalizePrinter(array $printer): array
+    {
+        $x = isset($printer['x']) ? (float)$printer['x'] : 180.0;
+        $y = isset($printer['y']) ? (float)$printer['y'] : 180.0;
+        $z = isset($printer['z']) ? (float)$printer['z'] : 180.0;
+        $posunZprava = isset($printer['posun_zprava']) ? (float)$printer['posun_zprava'] : 1.0;
+
+        // Head clearances (od trysky k hranám) – default z původního skriptu
+        $Xr = isset($printer['Xr']) ? (float)$printer['Xr'] : 12.0;
+        $Xl = isset($printer['Xl']) ? (float)$printer['Xl'] : 36.5;
+        $Yr = isset($printer['Yr']) ? (float)$printer['Yr'] : 15.5;
+        $Yl = isset($printer['Yl']) ? (float)$printer['Yl'] : 15.5;
+        $vodiciTyceZ = isset($printer['vodici_tyce_Z']) ? (float)$printer['vodici_tyce_Z'] : 21.0;
+        $vodiciTyceY = isset($printer['vodici_tyce_Y']) ? (float)$printer['vodici_tyce_Y'] : 17.4;
+
+        // Zohlednění korekce zprava
+        $xEff = $x - $posunZprava;
+
+        $smerX = ($Xl <= $Xr ? 'zleva_doprava' : 'zprava_doleva');
+        $smerY = ($Yl <= $Yr ? 'zepredu_dozadu' : 'zezadu_dopredu');
+
+        return [
+            'x' => $xEff,
+            'y' => $y,
+            'z' => $z,
+            'posun_zprava' => $posunZprava,
+            'Xr' => $Xr,
+            'Xl' => $Xl,
+            'Yr' => $Yr,
+            'Yl' => $Yl,
+            'vodici_tyce_Z' => $vodiciTyceZ,
+            'vodici_tyce_Y' => $vodiciTyceY,
+            'smer_X' => $smerX,
+            'smer_Y' => $smerY,
+        ];
+    }
+
+    private function normalizeOptions(array $options): array
+    {
+        return [
+            'rozprostrit_instance_po_cele_podlozce' => isset($options['rozprostrit_instance_po_cele_podlozce']) ? (bool)$options['rozprostrit_instance_po_cele_podlozce'] : true,
+            'rozprostrit_instance_v_ose_x' => isset($options['rozprostrit_instance_v_ose_x']) ? (bool)$options['rozprostrit_instance_v_ose_x'] : true,
+            'rozprostrit_instance_v_ose_y' => isset($options['rozprostrit_instance_v_ose_y']) ? (bool)$options['rozprostrit_instance_v_ose_y'] : true,
+        ];
+    }
+
+    private function sanitizeObjects(array $objekty): array
+    {
+        $out = [];
+        foreach ($objekty as $id => $objekt) {
+            if (!is_array($objekt)) continue;
+            $x = $this->toFloat(isset($objekt['x']) ? $objekt['x'] : null);
+            $y = $this->toFloat(isset($objekt['y']) ? $objekt['y'] : null);
+            $z = $this->toFloat(isset($objekt['z']) ? $objekt['z'] : null);
+
+            // +0.01 kvůli možnému zaokrouhlení dolů v PrusaSliceru (původní logika)
+            $x += 0.01;
+            $y += 0.01;
+            $z += 0.01;
+
+            // clamp valid
+            if ($x <= 0 || $y <= 0 || $z <= 0) continue;
+            if ($x > $this->printer['x'] || $y > $this->printer['y'] || $z > $this->printer['z']) continue;
+
+            $instancesD = 1;
+            if (isset($objekt['instances']) && is_array($objekt['instances']) && array_key_exists('d', $objekt['instances'])) {
+                $instancesD = $objekt['instances']['d'];
+                if ($instancesD === 'max') $instancesD = self::MAXIMALNI_POCET_INSTANCI;
+                $instancesD = (int)$instancesD;
+                if ($instancesD < 1) $instancesD = 1;
+                if ($instancesD > self::MAXIMALNI_POCET_INSTANCI) $instancesD = self::MAXIMALNI_POCET_INSTANCI;
+            }
+
+            $out[$id] = [
+                'x' => $x,
+                'y' => $y,
+                'z' => $z,
+                'instances' => [
+                    'd' => $instancesD,
+                    'r' => 0,
+                ],
+            ];
+        }
+        return $out;
+    }
+
+    private function sortObjectsStableByZyx(array $objekty): array
+    {
+        $items = [];
+        foreach ($objekty as $id => $o) {
+            $items[] = ['id' => $id, 'o' => $o];
+        }
+
+        usort($items, function ($a, $b) {
+            $az = $a['o']['z']; $bz = $b['o']['z'];
+            if ($az < $bz) return -1;
+            if ($az > $bz) return 1;
+            $ay = $a['o']['y']; $by = $b['o']['y'];
+            if ($ay < $by) return -1;
+            if ($ay > $by) return 1;
+            $ax = $a['o']['x']; $bx = $b['o']['x'];
+            if ($ax < $bx) return -1;
+            if ($ax > $bx) return 1;
+            return 0;
+        });
+
+        $sorted = [];
+        foreach ($items as $it) {
+            $sorted[$it['id']] = $it['o'];
+        }
+        return $sorted;
+    }
+
+    private function nastavZbyvaVOseY(): void
+    {
+        $this->zbyvaVOseY = ($this->printer['y'] - $this->poziceHranyNejvzdalenejsihoObjektu);
+    }
+
+    private function vypocitejPoziciInstanci(): void
+    {
+        $this->pos1 = $this->pos2 = $this->zbyvaVOseX = $this->datovaVetaPole = $this->pocetInstanciObjektu = $this->XcountPole = [];
+        $this->posunX1 = $this->posunY1 = 0.0;
+        $this->pocetInstanci1 = $this->pocetRad1 = 0;
+        $this->poziceHranyPrvnihoObjektuVRade = $this->poziceHranyNejvzdalenejsihoObjektu = 0.0;
+        $this->zbyvaVOseXMaximalne = $this->zbyvaVOseY = 0.0;
+        $this->pocetPodlozek1 = 1;
+        $this->Xcount1 = 0;
+
+        $p1 = 1;
+        $x1 = 1;
+        $y1 = 1;
+
+        foreach ($this->objektySerazene as $id => $objekt) {
+            $i1 = 0;
+            $i2 = 0;
+            $o1 = (int)$id + 1;
+
+            $ox = $objekt['x'];
+            $oy = $objekt['y'];
+            $oz = $objekt['z'];
+            $pozadovanyPocetInstanci = isset($objekt['instances']['d']) ? (int)$objekt['instances']['d'] : 1;
+            $this->pocetInstanciObjektu[$o1] = 0;
+
+            for ($ci = 1; $ci <= $pozadovanyPocetInstanci; $ci++) {
+                $i1 = $i2;
+                $i1++;
+
+                // mezera v ose X závisí na směru tisku (asymetrie hlavy)
+                $XMezeraMeziInstancemi = ($this->printer['smer_X'] === 'zleva_doprava' ? $this->printer['Xl'] : $this->printer['Xr']);
+
+                // X
+                if ($this->printer['smer_X'] === 'zleva_doprava') {
+                    $presahuje = (($ox + $this->posunX1) > $this->printer['x']);
+                    if ($presahuje || ($this->omezenyPocetInstanciVRade && $x1 > $this->omezenyPocetInstanciVRade)) {
+                        $y1++;
+                        $x1 = 1;
+                        $this->posunX1 = 0.0;
+                        $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr'])
+                            ? ($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y'])
+                            : ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr']));
+                    }
+                    $ix = ($ox / 2.0) + $this->posunX1;
+                } else {
+                    $presahuje = (($this->printer['x'] - $ox - $this->posunX1) < 0);
+                    if ($presahuje || ($this->omezenyPocetInstanciVRade && $x1 > $this->omezenyPocetInstanciVRade)) {
+                        $y1++;
+                        $x1 = 1;
+                        $this->posunX1 = 0.0;
+                        $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr'])
+                            ? ($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y'])
+                            : ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr']));
+
+                        // TODO sjednotit / zpřesnit kolizní logiku – převzato z původního skriptu (omezujeme pouze pokud existuje 2. objekt v předchozí řadě)
+                        if (isset($this->pos1[$p1][($y1 - 1)][2])) {
+                            $pozicePraveHranyXDruhehoObjektu = $this->pos1[$p1][($y1 - 1)][2]['X'] + ($this->pos1[$p1][($y1 - 1)][2]['x'] / 2.0);
+                            $poziceLeveHranyTohotoObjektu = $this->printer['x'] - $ox - $this->posunX1;
+                            if ($pozicePraveHranyXDruhehoObjektu < ($poziceLeveHranyTohotoObjektu - $this->printer['Xl'])) {
+                                $this->posunY1 = ($this->poziceHranyNejvzdalenejsihoObjektu + $this->printer['Yr']);
+                            }
+                        }
+                    }
+                    $ix = $this->printer['x'] - ($ox / 2.0) - $this->posunX1;
+                }
+
+                // Střídání stran: když je v řadě jen 1 objekt, sudé řady začnu z opačné strany.
+                if ($this->omezenyPocetInstanciVRade == 1 && $x1 == 1 && ($y1 % 2 == 0)) {
+                    $ix = ($this->printer['smer_X'] === 'zleva_doprava' ? ($this->printer['x'] - ($ox / 2.0)) : ($ox / 2.0));
+                }
+
+                // Y
+                if ($i1 > 1 && $x1 > 1
+                    && isset($this->pos1[$p1][$y1][($x1 - 1)])
+                    && $this->pos1[$p1][$y1][($x1 - 1)]['z'] > $this->printer['vodici_tyce_Z']
+                    && $this->pos1[$p1][$y1][($x1 - 1)]['y'] > $this->printer['vodici_tyce_Y']) {
+                    $this->posunY1 += ($this->pos1[$p1][$y1][($x1 - 1)]['y'] - $this->printer['vodici_tyce_Y']);
+                }
+
+                if ($this->printer['smer_Y'] === 'zepredu_dozadu') $iy = ($oy / 2.0) + $this->posunY1;
+                else $iy = $this->printer['y'] - ($oy / 2.0) - $this->posunY1;
+
+                if (($iy + ($oy / 2.0)) > $this->printer['y']) {
+                    $this->nastavZbyvaVOseY();
+                    break 2;
+                }
+
+                $i2++;
+                $this->pocetInstanci1++;
+                if ($y1 === 1) $this->Xcount1 = $this->pocetInstanci1;
+
+                $this->pos1[$p1][$y1][$x1] = [
+                    'o' => $o1,
+                    'i' => $i2,
+                    'X' => $ix,
+                    'Y' => $iy,
+                    'x' => $ox,
+                    'y' => $oy,
+                    'z' => $oz,
+                ];
+
+                if (!isset($this->XcountPole[$y1])) $this->XcountPole[$y1] = 0;
+                $this->XcountPole[$y1]++;
+                if ($x1 === 1) $this->pocetRad1++;
+
+                $this->posunX1 += ($ox + $XMezeraMeziInstancemi);
+                $this->zbyvaVOseX[$y1] = ($this->printer['x'] - ($this->posunX1 - $XMezeraMeziInstancemi));
+                if ($this->zbyvaVOseX[$y1] > $this->zbyvaVOseXMaximalne) $this->zbyvaVOseXMaximalne = $this->zbyvaVOseX[$y1];
+
+                if ($x1 === 1) $this->poziceHranyPrvnihoObjektuVRade = ($iy + ($oy / 2.0));
+                if ($this->poziceHranyNejvzdalenejsihoObjektu < ($iy + ($oy / 2.0))) $this->poziceHranyNejvzdalenejsihoObjektu = ($iy + ($oy / 2.0));
+                $this->nastavZbyvaVOseY();
+
+                $this->pocetInstanciObjektu[$o1]++;
+                $this->objekty[$id]['instances']['r'] = $this->pocetInstanciObjektu[$o1];
+                $x1++;
+            }
+        }
+
+        $this->pos2 = $this->pos1;
+
+        if ($this->zbyvaVOseXMaximalne || $this->zbyvaVOseY) {
+            $pripocitamVOseY = ($this->zbyvaVOseY && $this->pocetRad1 > 1) ? ($this->zbyvaVOseY / ($this->pocetRad1 - 1)) : 0.0;
+            foreach ($this->pos2[1] as $yIdx => $rada) {
+                $pocetInstanciVRade = count($rada);
+                $sudaRada = ($yIdx % 2 === 0);
+                $cikCak = ($this->omezenyPocetInstanciVRade && $pocetInstanciVRade === 1 && $sudaRada);
+                $pripocitamVOseX = ($this->zbyvaVOseXMaximalne && $pocetInstanciVRade > 1)
+                    ? ($this->zbyvaVOseX[$yIdx] / ($pocetInstanciVRade - 1))
+                    : 0.0;
+
+                foreach ($rada as $xIdx => $_objekt1) {
+                    if ($this->options['rozprostrit_instance_v_ose_x'] && ($xIdx > 1 || $cikCak)) {
+                        if ($this->printer['smer_X'] === 'zleva_doprava') $this->pos2[1][$yIdx][$xIdx]['X'] += $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
+                        else $this->pos2[1][$yIdx][$xIdx]['X'] -= $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
+                    }
+                    if ($this->options['rozprostrit_instance_v_ose_y'] && $yIdx > 1) {
+                        if ($this->printer['smer_Y'] === 'zepredu_dozadu') $this->pos2[1][$yIdx][$xIdx]['Y'] += $pripocitamVOseY * ($yIdx - 1);
+                        else $this->pos2[1][$yIdx][$xIdx]['Y'] -= $pripocitamVOseY * ($yIdx - 1);
+                    }
+                    $this->datovaVetaPole[] = [
+                        $this->pos2[1][$yIdx][$xIdx]['i'],
+                        round($this->pos2[1][$yIdx][$xIdx]['X'], 2),
+                        round($this->pos2[1][$yIdx][$xIdx]['Y'], 2),
+                    ];
+                }
+            }
+        } else {
+            // i bez rozprostření chci mít JSON výstup
+            if (isset($this->pos2[1])) {
+                foreach ($this->pos2[1] as $yIdx => $rada) {
+                    foreach ($rada as $xIdx => $_objekt1) {
+                        $this->datovaVetaPole[] = [
+                            $this->pos2[1][$yIdx][$xIdx]['i'],
+                            round($this->pos2[1][$yIdx][$xIdx]['X'], 2),
+                            round($this->pos2[1][$yIdx][$xIdx]['Y'], 2),
+                        ];
+                    }
+                }
+            }
+        }
+    }
+
+    private function prepocitejSRozprostrenimPoCeleTiskovePodlozce(int $parPocetInstanci, int $parPocetRad): void
+    {
+        $this->omezenyPocetInstanciVRade = (int)ceil($parPocetInstanci / $parPocetRad);
+        $this->vypocitejPoziciInstanci();
+    }
+
+    private function prepocitejSUpravouPozadovanehoPoctuInstanciObjektu(int $parPocetInstanci, array $kromeTechtoObjektu, bool $nastavitPomerny = false): void
+    {
+        foreach ($this->objektySerazene as $id => $objekt) {
+            $nastavovany = $nastavitPomerny
+                ? ((isset($this->pomernyPocetVyslednychInstanci[$id]) ? $this->pomernyPocetVyslednychInstanci[$id] : 0) - $parPocetInstanci)
+                : $parPocetInstanci;
+
+            if (!in_array($id, $kromeTechtoObjektu, true)) {
+                $dOriginal = isset($this->objekty[$id]['instances']['d']) ? (int)$this->objekty[$id]['instances']['d'] : 1;
+                $this->objektySerazene[$id]['instances']['d'] = ($dOriginal < $nastavovany ? $dOriginal : (int)$nastavovany);
+            }
+        }
+        $this->vypocitejPoziciInstanci();
+    }
+
+    private function vypocitejPrumernyPocetInstanci(): void
+    {
+        $pocetObjektu = count($this->objekty);
+        if ($pocetObjektu <= 0) return;
+        $celkemPozadovanych = 0.0;
+        $celkemVyslednych = 0.0;
+        foreach ($this->objekty as $objekt) {
+            $celkemPozadovanych += (float)$objekt['instances']['d'];
+            $celkemVyslednych += (float)$objekt['instances']['r'];
+        }
+        $this->printer['_prumerny_pocet_pozadovanych'] = $celkemPozadovanych / $pocetObjektu;
+        $this->printer['_prumerny_pocet_vyslednych'] = $celkemVyslednych / $pocetObjektu;
+    }
+
+    private function nastavPomernyPocetVyslednychInstanci(): void
+    {
+        $prumPoz = isset($this->printer['_prumerny_pocet_pozadovanych']) ? (float)$this->printer['_prumerny_pocet_pozadovanych'] : 0.0;
+        $prumVys = isset($this->printer['_prumerny_pocet_vyslednych']) ? (float)$this->printer['_prumerny_pocet_vyslednych'] : 0.0;
+        if ($prumPoz <= 0) return;
+
+        foreach ($this->objekty as $id => $objekt) {
+            $this->pomernyPocetVyslednychInstanci[$id] = ((float)$objekt['instances']['d'] / $prumPoz) * $prumVys;
+        }
+    }
+
+    private function nastavPoleKromeTechtoObjektu(): void
+    {
+        $this->kromeTechtoObjektu = [];
+        foreach ($this->bylaUmistenaAlesponJednaInstanceObjektu as $id => $_) {
+            $this->kromeTechtoObjektu[] = $id;
+        }
+    }
+
+    private function getObjektR($id): int
+    {
+        return isset($this->objekty[$id]['instances']['r']) ? (int)$this->objekty[$id]['instances']['r'] : 0;
+    }
+
+    private function firstKey(array $arr)
+    {
+        foreach ($arr as $k => $_) return $k;
+        return null;
+    }
+
+    private function toFloat($v): float
+    {
+        if ($v === null) return 0.0;
+        if (is_string($v)) $v = str_replace(',', '.', $v);
+        return (float)$v;
+    }
+
+    private function result(array $pos): array
+    {
+        $XcountMin = !empty($this->XcountPole) ? min($this->XcountPole) : 0;
+        $XcountMax = !empty($this->XcountPole) ? max($this->XcountPole) : 0;
+
+        return [
+            'printer' => $this->printer,
+            'options' => $this->options,
+            'objekty' => $this->objekty,
+            'objekty_serazene' => $this->objektySerazene,
+            'pos' => $pos,
+            'datova_veta_pole' => $this->datovaVetaPole,
+            'pocet_instanci' => $this->pocetInstanci1,
+            'pocet_rad' => $this->pocetRad1,
+            'pocet_podlozek' => $this->pocetPodlozek1,
+            'Xcount' => $this->Xcount1,
+            'Xcount_pole' => $this->XcountPole,
+            'Xcount_min' => $XcountMin,
+            'Xcount_max' => $XcountMax,
+            'zbyva_v_ose_X' => $this->zbyvaVOseX,
+            'zbyva_v_ose_Y' => $this->zbyvaVOseY,
+        ];
+    }
+}
+
