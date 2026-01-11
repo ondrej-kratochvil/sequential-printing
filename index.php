@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 define("MAXIMALNI_POCET_INSTANCI", 99);
 define("MAXIMALNI_POCET_ITERACI", 99);
 
@@ -81,9 +81,10 @@ function nastav_zbyva_v_ose_Y () {
 }
 
 function vypocitej_pozici_instanci () {
-	global $objekty, $objekty_serazene, $smer_X, $smer_Y, $X, $Y, $Xr, $Yr, $rozprostrit_instance_v_ose_x, $rozprostrit_instance_v_ose_y, $omezeny_pocet_instanci_v_rade, $vodici_tyce_Z, $pos1, $pos2, $zbyva_v_ose_X, $vodici_tyce_Y, $datova_veta_pole, $pocet_instanci_objektu, $Xcount_pole, $posun_x1, $posun_y1, $pocet_instanci1, $pocet_rad1, $pozice_hrany_prvniho_objektu_v_rade, $pozice_hrany_nejvzdalenejsiho_objektu, $zbyva_v_ose_X_maximalne, $zbyva_v_ose_Y, $pocet_podlozek1;
+	global $objekty, $objekty_serazene, $smer_X, $smer_Y, $X, $Y, $Xr, $Xl, $Yr, $rozprostrit_instance_v_ose_x, $rozprostrit_instance_v_ose_y, $omezeny_pocet_instanci_v_rade, $vodici_tyce_Z, $pos1, $pos2, $zbyva_v_ose_X, $vodici_tyce_Y, $datova_veta_pole, $pocet_instanci_objektu, $Xcount_pole, $posun_x1, $posun_y1, $pocet_instanci1, $pocet_rad1, $pozice_hrany_prvniho_objektu_v_rade, $pozice_hrany_nejvzdalenejsiho_objektu, $zbyva_v_ose_X_maximalne, $zbyva_v_ose_Y, $pocet_podlozek1, $Xcount1;
 	$pos1 = $pos2 = $zbyva_v_ose_X = $datova_veta_pole = $pocet_instanci_objektu = $Xcount_pole = [];
 	$posun_x1 = $posun_y1 = $pocet_instanci1 = $pocet_rad1 = $pozice_hrany_prvniho_objektu_v_rade = $pozice_hrany_nejvzdalenejsiho_objektu = $zbyva_v_ose_X_maximalne = $zbyva_v_ose_Y = 0;
+	$Xcount1 = 0;
 	$pocet_podlozek1 = $p1 = $x1 = $y1 = 1; // TODO předělat v závislosti na ID objektu; přidat možnost umístění na více podložek
 	foreach ($objekty_serazene as $id => $objekt) {
 		$i1 = $i2 = 0;
@@ -97,26 +98,39 @@ function vypocitej_pozici_instanci () {
 		for ($ci = 1; $ci <= $pozadovany_pocet_instanci; $ci++) {
 			$i1 = $i2;// Nastavím dočasné počítadlo instancí podle finálního počítadla instancí
 			$i1++; // Navýším dočasné počítadlo instancí
+			$X_mezera_mezi_instancemi = ($smer_X == "zleva_doprava" ? $Xl : $Xr);
 			/* Nastavím pozici X */
-			if ($smer_X == "zleva_doprava") { // TODO udělat stejným způsobem (jen opačným směrem) jako v opačném směru (else)
+			if ($smer_X == "zleva_doprava") {
+				$presahuje_podlozku_v_ose_X = (($ox + $posun_x1) > $X);
+				if ($presahuje_podlozku_v_ose_X or ($omezeny_pocet_instanci_v_rade and $x1 > $omezeny_pocet_instanci_v_rade)) { // Pokud by již instance přesahovala podložku v ose X
+					$y1++; // Navýším řadu
+					$x1 = 1; // Nastavím sloupec na počítační hodnotu
+					$posun_x1 = 0; // Vynuluji posun v ose X
+					$posun_y1 = (($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) > ($pozice_hrany_prvniho_objektu_v_rade + $Yr) ? ($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) : ($pozice_hrany_prvniho_objektu_v_rade + $Yr));
+				}
 				$ix = ($ox / 2) + $posun_x1; // Nastavím pozici X
 			}
 			else {
-				if (($X - $ox - $posun_x1) < 0 or ($omezeny_pocet_instanci_v_rade and $x1 > $omezeny_pocet_instanci_v_rade)) { // Pokud by již instance přesahovala podložku v ose X
+				$presahuje_podlozku_v_ose_X = (($X - $ox - $posun_x1) < 0);
+				if ($presahuje_podlozku_v_ose_X or ($omezeny_pocet_instanci_v_rade and $x1 > $omezeny_pocet_instanci_v_rade)) { // Pokud by již instance přesahovala podložku v ose X
 					$y1++; // Navýším řadu
 					$x1 = 1; // Nastavím sloupec na počítační hodnotu
 					$posun_x1 = 0; // Vynuluji posun v ose X
 					$posun_y1 = (($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) > ($pozice_hrany_prvniho_objektu_v_rade + $Yr) ? ($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) : ($pozice_hrany_prvniho_objektu_v_rade + $Yr)); // Nastavím posun nové řady podle toho, co je dál, aby nenarazila hlava do prvního objektu v předchozí řadě, nebo vodící tyče do posledního objektu v předchozí řadě
 					//echo "(pozice_hrany_prvniho_objektu_v_rade + Yr) = ".($pozice_hrany_prvniho_objektu_v_rade + $Yr)."<br />";
 					//echo "(pozice_hrany_nejvzdalenejsiho_objektu - vodici_tyce_Y) = ".($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y)."<br />";
-					$pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade = $pos1[$p1][($y1 - 1)][2]["X"] + ($pos1[$p1][($y1 - 1)][2]["x"] / 2);
-					echo "pozice_hrany_x_druheho_objektu_v_predchozi_rade = ".$pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade."<br />";
-					$pozice_leve_hrany_x_tohoto_objektu = $X - $ox - $posun_x1;
-					echo "pozice_leve_hrany_x_tohoto_objektu = ".$pozice_leve_hrany_x_tohoto_objektu."<br />";
-					if ($pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade < ($pozice_leve_hrany_x_tohoto_objektu - $Xl)) $posun_y1 = ($pozice_hrany_nejvzdalenejsiho_objektu + $Yr); // Pokud by hlava narazila do druhého objektu v předchozí řadě, raději nastavím posun podle posledního objektu // TODO udělat posun Y v cyklu, aby se nastavil podle druhého objektu v předchozí řadě a kontroloval se třetí objekt atd. // TODO rosprostřední v ose X je nutné dělat druhým průchodem funkce, aby se zajistil dostatečný prostor mezi objekty pro Xl, nebo i bez rozprostření udělat další průchod, kdy se Xl použije místo Xr
+					if (isset($pos1[$p1][($y1 - 1)][2])) {
+						$pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade = $pos1[$p1][($y1 - 1)][2]["X"] + ($pos1[$p1][($y1 - 1)][2]["x"] / 2);
+						$pozice_leve_hrany_x_tohoto_objektu = $X - $ox - $posun_x1;
+						if ($pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade < ($pozice_leve_hrany_x_tohoto_objektu - $Xl)) $posun_y1 = ($pozice_hrany_nejvzdalenejsiho_objektu + $Yr); // TODO sjednotit logiku výpočtu posunu Y
+					}
 					//echo "posun_y1 = ".$posun_y1."<br />";
 				}
 				$ix = $X - ($ox / 2) - $posun_x1; // Nastavím pozici X
+			}
+			// Střídání stran: když je v řadě jen 1 objekt, sudé řady začnu z opačné strany.
+			if ($omezeny_pocet_instanci_v_rade == 1 && $x1 == 1 && ($y1 % 2 == 0)) {
+				$ix = ($smer_X == "zleva_doprava" ? ($X - ($ox / 2)) : ($ox / 2));
 			}
 			//echo 'ix = '.$ix.'<br />';
 			/* Nastavím pozici Y */
@@ -150,13 +164,9 @@ function vypocitej_pozici_instanci () {
 			if (!isset($Xcount_pole[$y1])) $Xcount_pole[$y1] = 0;
 			$Xcount_pole[$y1]++;
 			if ($x1 == 1) $pocet_rad1++;
-			$posun_x1 += ($ox + $Xr); // Nastavím posun v ose X pro následující instanci
-			if ($smer_X == "zleva_doprava") { // TODO udělat stejným způsobem (jen opačným směrem) jako v opačném směru (else)
-			}
-			else {
-				$zbyva_v_ose_X[$y1] = ($X - ($posun_x1 - $Xr));
-				if ($zbyva_v_ose_X[$y1] > $zbyva_v_ose_X_maximalne) $zbyva_v_ose_X_maximalne = $zbyva_v_ose_X[$y1];
-			}
+			$posun_x1 += ($ox + $X_mezera_mezi_instancemi); // Nastavím posun v ose X pro následující instanci
+			$zbyva_v_ose_X[$y1] = ($X - ($posun_x1 - $X_mezera_mezi_instancemi));
+			if ($zbyva_v_ose_X[$y1] > $zbyva_v_ose_X_maximalne) $zbyva_v_ose_X_maximalne = $zbyva_v_ose_X[$y1];
 			if ($x1 == 1) $pozice_hrany_prvniho_objektu_v_rade = ($iy + ($oy / 2)); // Ukládám si pozici hrany prvního objektu v této řadě, abych ji uplatnil pro posuv následující řady
 			if ($pozice_hrany_nejvzdalenejsiho_objektu < ($iy + ($oy / 2))) $pozice_hrany_nejvzdalenejsiho_objektu = ($iy + ($oy / 2)); // Ukládám si pozici nejvzdálenější hrany v této řadě, abych ji uplatnil pro posuv následující řady
 			nastav_zbyva_v_ose_Y();
@@ -169,12 +179,12 @@ function vypocitej_pozici_instanci () {
 	//print_r($zbyva_v_ose_Y);
 	$pos2 = $pos1;
 	if ($zbyva_v_ose_X_maximalne or $zbyva_v_ose_Y) {
-		$pripocitam_v_ose_Y = ($zbyva_v_ose_Y ? ($zbyva_v_ose_Y / ($pocet_rad1 - 1)) : 0);
+		$pripocitam_v_ose_Y = ($zbyva_v_ose_Y && $pocet_rad1 > 1 ? ($zbyva_v_ose_Y / ($pocet_rad1 - 1)) : 0);
 		foreach ($pos2[$p1] as $y1 => $rada) {
 			$pocet_instanci_v_rade = count($rada);
 			$suda_rada = ($y1 % 2 == 0);
 			$cik_cak = ($omezeny_pocet_instanci_v_rade and $pocet_instanci_v_rade == 1 and $suda_rada); // dělat i v případě rovnoměrného rozprostření instancí po celé podložce, když je jen jeden objekt v sudé řadě
-			$pripocitam_v_ose_X = ($zbyva_v_ose_X_maximalne ? ($zbyva_v_ose_X[$y1] / ($cik_cak ? 1 : ($pocet_instanci_v_rade - 1))) : 0);
+			$pripocitam_v_ose_X = ($zbyva_v_ose_X_maximalne && $pocet_instanci_v_rade > 1 ? ($zbyva_v_ose_X[$y1] / ($pocet_instanci_v_rade - 1)) : 0);
 			foreach ($rada as $x1 => $objekt1) {
 				if ($rozprostrit_instance_v_ose_x and ($x1 > 1 or $cik_cak)) {
 					if ($smer_X == "zleva_doprava") $pos2[$p1][$y1][$x1]["X"] += $pripocitam_v_ose_X * ($cik_cak ? 1 : ($x1 - 1));
@@ -251,6 +261,8 @@ $smer_Y = ($Yl <= $Yr ? "zepredu_dozadu" : "zezadu_dopredu");
 $rozprostrit_instance_po_cele_podlozce = (empty($_GET) or (isset($_GET["rozprostrit_instance_po_cele_podlozce"]) and $_GET["rozprostrit_instance_po_cele_podlozce"]));
 $rozprostrit_instance_v_ose_x = (empty($_GET) or (isset($_GET["rozprostrit_instance_v_ose_x"]) and $_GET["rozprostrit_instance_v_ose_x"]));
 $rozprostrit_instance_v_ose_y = (empty($_GET) or (isset($_GET["rozprostrit_instance_v_ose_y"]) and $_GET["rozprostrit_instance_v_ose_y"]));
+$umistit_na_stred_v_ose_x = (!empty($_GET) and (isset($_GET["umistit_na_stred_v_ose_x"]) and $_GET["umistit_na_stred_v_ose_x"]));
+$umistit_na_stred_v_ose_y = (!empty($_GET) and (isset($_GET["umistit_na_stred_v_ose_y"]) and $_GET["umistit_na_stred_v_ose_y"]));
 
 /* Objekty - TODO předělat na zadávání přes formulář (hotovo), možná i uložení do DB (přes Adinistraci stran - 1) Vložení objektů, Vložení sady, Provazba mezi sadou, objektem a zadání počtu instancí */
 
@@ -511,7 +523,7 @@ if (!empty($objekty_upravene)) {
 
 		<h2>Objekty</h2>
 
-		<form method="get" action="./index1.php">
+		<form method="get" action="./index.php">
 			<table id="objekty">
 				<tr>
 					<th rowspan="2">ID<br />objektu</th>
