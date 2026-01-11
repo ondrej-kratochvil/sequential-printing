@@ -30,6 +30,26 @@ curl -X POST 'http://localhost/api.php' \
   -d '{"objekty":[{"x":50,"y":50,"z":100,"instances":{"d":3}}]}'
 ```
 
+### Autentizace (API klíče) + rate limit
+
+`api.php` vyžaduje API klíč:
+- `Authorization: Bearer <api_key>` (doporučeno), nebo
+- `X-Api-Key: <api_key>`
+
+Konfigurace DB přes env proměnné:
+- `DB_DSN` (např. `mysql:host=127.0.0.1;dbname=sekvencni_tisk;charset=utf8mb4`)
+- `DB_USER`
+- `DB_PASS`
+
+Vypnutí požadavku na klíč (jen pro lokální demo): `API_REQUIRE_KEY=0`
+
+Vytvoření uživatele a klíče (CLI):
+
+```bash
+php bin/create_user.php user@example.com 'heslo'
+php bin/create_api_key.php 1 'muj klic' 60
+```
+
 ## DB schéma (MariaDB)
 
 SQL je v `db/schema.sql` (uživatelé, API klíče, tiskárny + schody profilu hlavy).

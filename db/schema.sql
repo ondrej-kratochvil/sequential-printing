@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS api_keys (
   CONSTRAINT fk_api_keys_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Jednoduchý rate-limit po minutách (okno = unix timestamp zaokrouhlený dolů na minutu).
+CREATE TABLE IF NOT EXISTS api_key_rate_limits (
+  api_key_id BIGINT UNSIGNED NOT NULL,
+  window_start_ts INT UNSIGNED NOT NULL,
+  cnt INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (api_key_id, window_start_ts),
+  CONSTRAINT fk_api_key_rate_limits_key FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Tiskárna: buď systémová (created_by_user_id NULL), nebo uživatelská.
 -- approved=1 znamená veřejně viditelná.
 CREATE TABLE IF NOT EXISTS printers (

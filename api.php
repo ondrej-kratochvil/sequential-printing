@@ -15,8 +15,24 @@
  */
 
 require_once __DIR__ . "/src/SequentialPrintCalculator.php";
+require_once __DIR__ . "/src/ApiAuth.php";
 
 header("Content-Type: application/json; charset=UTF-8");
+
+$jsonError = function (int $status, string $message): void {
+    http_response_code($status);
+    echo json_encode(["error" => $message], JSON_UNESCAPED_UNICODE);
+    exit;
+};
+
+// Autorizace + rate-limit (API klíče)
+try {
+    ApiAuth::requireApiKey();
+} catch (ApiAuthHttpException $e) {
+    $jsonError($e->statusCode, $e->getMessage());
+} catch (Throwable $e) {
+    $jsonError(500, "Chyba při ověření API klíče.");
+}
 
 $method = isset($_SERVER["REQUEST_METHOD"]) ? $_SERVER["REQUEST_METHOD"] : "GET";
 $input = null;
@@ -33,9 +49,7 @@ if (!is_array($input)) {
 
 $objekty = isset($input["objekty"]) && is_array($input["objekty"]) ? $input["objekty"] : [];
 if (empty($objekty)) {
-    http_response_code(400);
-    echo json_encode(["error" => "Chybí pole 'objekty'."], JSON_UNESCAPED_UNICODE);
-    exit;
+    $jsonError(400, "Chybí pole 'objekty'.");
 }
 
 // Výchozí tiskárna odpovídá současnému index.php
