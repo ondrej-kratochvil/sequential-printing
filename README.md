@@ -50,6 +50,31 @@ php bin/create_user.php user@example.com 'heslo'
 php bin/create_api_key.php 1 'muj klic' 60
 ```
 
+### Endpointy pro správu API klíčů (JSON)
+
+Seznam klíčů (bez plaintext):
+
+```bash
+curl 'http://localhost/api_keys.php' \
+  -H 'Authorization: Bearer <api_key>'
+```
+
+Vytvoření nového klíče (plaintext se vrátí jen jednou):
+
+```bash
+curl -X POST 'http://localhost/api_keys.php' \
+  -H 'Authorization: Bearer <api_key>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"integrace A","rate_limit_per_min":60}'
+```
+
+Revokace klíče:
+
+```bash
+curl -X DELETE 'http://localhost/api_keys.php?id=123' \
+  -H 'Authorization: Bearer <api_key>'
+```
+
 ## DB schéma (MariaDB)
 
 SQL je v `db/schema.sql` (uživatelé, API klíče, tiskárny + schody profilu hlavy).
