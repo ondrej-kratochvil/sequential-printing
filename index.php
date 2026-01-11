@@ -242,6 +242,46 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				$('#nastaveni').hide();
 				$('#zbyvajici_misto').hide();
 
+				// --- Ukládání/načítání konfigurace bez DB (localStorage) ---
+				const LS_KEY = 'sekvencni_tisk:last_query';
+
+				function setStatus(msg) {
+					const el = document.getElementById('local_status');
+					if (!el) return;
+					el.textContent = msg || '';
+					if (msg) setTimeout(() => { el.textContent = ''; }, 2500);
+				}
+
+				$('#save_local').on('click', function () {
+					try {
+						localStorage.setItem(LS_KEY, window.location.search || '');
+						setStatus('Uloženo');
+					} catch (e) {
+						setStatus('Nelze uložit (localStorage)');
+					}
+				});
+
+				$('#load_local').on('click', function () {
+					const q = localStorage.getItem(LS_KEY);
+					if (!q) return setStatus('Není co načíst');
+					window.location.search = q;
+				});
+
+				$('#clear_local').on('click', function () {
+					localStorage.removeItem(LS_KEY);
+					setStatus('Smazáno');
+				});
+
+				$('#example_basic').on('click', function () {
+					// rychlý příklad pro otestování
+					const params = new URLSearchParams();
+					params.set('objekty[0][x]', '50');
+					params.set('objekty[0][y]', '50');
+					params.set('objekty[0][z]', '100');
+					params.set('objekty[0][instances][d]', '99');
+					window.location.search = '?' + params.toString();
+				});
+
 				$('#copy_json').on('click', async function () {
 					const el = document.getElementById('json_textarea');
 					if (!el) return;
@@ -431,7 +471,12 @@ if (!empty($pocet_instanci_objektu)) {
 			<div class="toolbar">
 				<button class="ghost" type="button" onclick="javascript:pridej_radek_do_tabulky();">Přidat řádek</button>
 				<button class="ghost" type="button" onclick="javascript:$('#nastaveni').toggle(120);">Nastavení</button>
+				<button class="ghost" id="example_basic" type="button" title="Vyplní ukázková data">Příklad</button>
+				<button class="ghost" id="save_local" type="button" title="Uloží aktuální odkaz (query) do prohlížeče">Uložit</button>
+				<button class="ghost" id="load_local" type="button" title="Načte uložený odkaz z prohlížeče">Načíst</button>
+				<button class="ghost" id="clear_local" type="button" title="Smaže uložené nastavení">Smazat</button>
 			  <button class="primary" type="submit">Vypočítat</button>
+				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
 			</div>
 		</form>
 
