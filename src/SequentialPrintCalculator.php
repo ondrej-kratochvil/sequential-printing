@@ -105,6 +105,15 @@ class SequentialPrintCalculator
             return $this->result([]);
         }
 
+        // Směr tisku je globální – odvoď ho podle profilu hlavy pro nejvyšší objekt v zadání.
+        $maxH = 0.0;
+        foreach ($this->objektySerazene as $o) {
+            if ($o['z'] > $maxH) $maxH = $o['z'];
+        }
+        $headForMax = $this->getHeadForHeight($maxH);
+        $this->printer['smer_X'] = ($headForMax['Xl'] <= $headForMax['Xr'] ? 'zleva_doprava' : 'zprava_doleva');
+        $this->printer['smer_Y'] = ($headForMax['Yl'] <= $headForMax['Yr'] ? 'zepredu_dozadu' : 'zezadu_dopredu');
+
         // Inicializační výpočet (nastaví instances[r] v $this->objekty a pozice)
         $this->vypocitejPoziciInstanci();
 
@@ -230,6 +239,28 @@ class SequentialPrintCalculator
         // Zohlednění korekce zprava
         $xEff = $x - $posunZprava;
 
+        // Volitelné "schody" profilu hlavy. Formát:
+        // [ ["z"=>0,"xl"=>...,"xr"=>...,"yl"=>...,"yr"=>...], ... ]
+        $headSteps = [];
+        if (isset($printer['head_steps']) && is_array($printer['head_steps'])) {
+            foreach ($printer['head_steps'] as $step) {
+                if (!is_array($step)) continue;
+                $headSteps[] = [
+                    'z' => $this->toFloat(isset($step['z']) ? $step['z'] : (isset($step['z_mm']) ? $step['z_mm'] : 0)),
+                    'Xl' => $this->toFloat(isset($step['xl']) ? $step['xl'] : (isset($step['xl_mm']) ? $step['xl_mm'] : (isset($step['Xl']) ? $step['Xl'] : 0))),
+                    'Xr' => $this->toFloat(isset($step['xr']) ? $step['xr'] : (isset($step['xr_mm']) ? $step['xr_mm'] : (isset($step['Xr']) ? $step['Xr'] : 0))),
+                    'Yl' => $this->toFloat(isset($step['yl']) ? $step['yl'] : (isset($step['yl_mm']) ? $step['yl_mm'] : (isset($step['Yl']) ? $step['Yl'] : 0))),
+                    'Yr' => $this->toFloat(isset($step['yr']) ? $step['yr'] : (isset($step['yr_mm']) ? $step['yr_mm'] : (isset($step['Yr']) ? $step['Yr'] : 0))),
+                ];
+            }
+        }
+        usort($headSteps, function ($a, $b) {
+            if ($a['z'] < $b['z']) return -1;
+            if ($a['z'] > $b['z']) return 1;
+            return 0;
+        });
+
+        // Výchozí směr se může přepsat později podle max výšky v zadání.
         $smerX = ($Xl <= $Xr ? 'zleva_doprava' : 'zprava_doleva');
         $smerY = ($Yl <= $Yr ? 'zepredu_dozadu' : 'zezadu_dopredu');
 
@@ -242,6 +273,7 @@ class SequentialPrintCalculator
             'Xl' => $Xl,
             'Yr' => $Yr,
             'Yl' => $Yl,
+            'head_steps' => $headSteps,
             'vodici_tyce_Z' => $vodiciTyceZ,
             'vodici_tyce_Y' => $vodiciTyceY,
             'smer_X' => $smerX,
@@ -352,6 +384,7 @@ class SequentialPrintCalculator
             $ox = $objekt['x'];
             $oy = $objekt['y'];
             $oz = $objekt['z'];
+            $head = $this->getHeadForHeight($oz);
             $pozadovanyPocetInstanci = isset($objekt['instances']['d']) ? (int)$objekt['instances']['d'] : 1;
             $this->pocetInstanciObjektu[$o1] = 0;
 
@@ -359,8 +392,8 @@ class SequentialPrintCalculator
                 $i1 = $i2;
                 $i1++;
 
-                // mezera v ose X závisí na směru tisku (asymetrie hlavy)
-                $XMezeraMeziInstancemi = ($this->printer['smer_X'] === 'zleva_doprava' ? $this->printer['Xl'] : $this->printer['Xr']);
+                // mezera v ose X závisí na směru tisku + profilu hlavy pro výšku objektu
+                $XMezeraMeziInstancemi = ($this->printer['smer_X'] === 'zleva_doprava' ? $head['Xl'] : $head['Xr']);
 
                 // X
                 if ($this->printer['smer_X'] === 'zleva_doprava') {
@@ -369,9 +402,9 @@ class SequentialPrintCalculator
                         $y1++;
                         $x1 = 1;
                         $this->posunX1 = 0.0;
-                        $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr'])
+                        $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr'])
                             ? ($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y'])
-                            : ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr']));
+                            : ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr']));
                     }
                     $ix = ($ox / 2.0) + $this->posunX1;
                 } else {
@@ -380,16 +413,16 @@ class SequentialPrintCalculator
                         $y1++;
                         $x1 = 1;
                         $this->posunX1 = 0.0;
-                        $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr'])
+                        $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr'])
                             ? ($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y'])
-                            : ($this->poziceHranyPrvnihoObjektuVRade + $this->printer['Yr']));
+                            : ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr']));
 
                         // TODO sjednotit / zpřesnit kolizní logiku – převzato z původního skriptu (omezujeme pouze pokud existuje 2. objekt v předchozí řadě)
                         if (isset($this->pos1[$p1][($y1 - 1)][2])) {
                             $pozicePraveHranyXDruhehoObjektu = $this->pos1[$p1][($y1 - 1)][2]['X'] + ($this->pos1[$p1][($y1 - 1)][2]['x'] / 2.0);
                             $poziceLeveHranyTohotoObjektu = $this->printer['x'] - $ox - $this->posunX1;
-                            if ($pozicePraveHranyXDruhehoObjektu < ($poziceLeveHranyTohotoObjektu - $this->printer['Xl'])) {
-                                $this->posunY1 = ($this->poziceHranyNejvzdalenejsihoObjektu + $this->printer['Yr']);
+                            if ($pozicePraveHranyXDruhehoObjektu < ($poziceLeveHranyTohotoObjektu - $head['Xl'])) {
+                                $this->posunY1 = ($this->poziceHranyNejvzdalenejsihoObjektu + $head['Yr']);
                             }
                         }
                     }
@@ -563,6 +596,32 @@ class SequentialPrintCalculator
         if ($v === null) return 0.0;
         if (is_string($v)) $v = str_replace(',', '.', $v);
         return (float)$v;
+    }
+
+    /**
+     * Vrátí profil hlavy pro danou výšku objektu.
+     * Pravidlo: vezmi nejbližší nižší nebo stejný schod (z <= H).
+     */
+    private function getHeadForHeight(float $h): array
+    {
+        $steps = isset($this->printer['head_steps']) && is_array($this->printer['head_steps']) ? $this->printer['head_steps'] : [];
+        if (empty($steps)) {
+            return [
+                'z' => $h,
+                'Xl' => $this->printer['Xl'],
+                'Xr' => $this->printer['Xr'],
+                'Yl' => $this->printer['Yl'],
+                'Yr' => $this->printer['Yr'],
+            ];
+        }
+
+        $best = null;
+        foreach ($steps as $s) {
+            if ($s['z'] <= $h) $best = $s;
+            else break;
+        }
+        if ($best === null) $best = $steps[0];
+        return $best;
     }
 
     private function result(array $pos): array

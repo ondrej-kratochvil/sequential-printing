@@ -165,6 +165,39 @@ if (!empty($objekty)) {
 	}
 }
 
+/* JSON výstup (pro API / integrace) */
+if (isset($_GET["format"]) && $_GET["format"] === "json") {
+	header("Content-Type: application/json; charset=UTF-8");
+	$printer_json = [
+		"x" => $tiskova_plocha["x"],
+		"y" => $tiskova_plocha["y"],
+		"z" => $tiskova_plocha["z"],
+		"posun_zprava" => $posun_zprava,
+		"Xr" => (float)$Xr,
+		"Xl" => (float)$Xl,
+		"Yr" => (float)$Yr,
+		"Yl" => (float)$Yl,
+		"vodici_tyce_Z" => (float)$vodici_tyce_Z,
+		"vodici_tyce_Y" => (float)$vodici_tyce_Y,
+		"smer_X" => $smer_X,
+		"smer_Y" => $smer_Y
+	];
+	if (isset($vysledek) && is_array($vysledek) && isset($vysledek["printer"])) {
+		$printer_json = $vysledek["printer"];
+	}
+	echo json_encode(
+		[
+			"positions" => $datova_veta_pole,
+			"pocet_instanci" => $pocet_instanci,
+			"pocet_podlozek" => $pocet_podlozek,
+			"objekty" => $objekty,
+			"printer" => $printer_json
+		],
+		JSON_UNESCAPED_UNICODE
+	);
+	exit;
+}
+
 /* Vypsání HTML */
 ?>
 <!DOCTYPE html>

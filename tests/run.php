@@ -81,6 +81,31 @@ if (PHP_SAPI === 'cli') {
     assertTrue(is_array($res["positions"]) && count($res["positions"]) === $res["count"], "Max scénář: počet pozic musí odpovídat count");
     ok("Max scénář (99) nespadl a vrátil nenulový výsledek.");
 
+    // 3) Regrese: směr tisku se určuje podle profilu hlavy pro nejvyšší objekt.
+    $calc = new SequentialPrintCalculator(
+        [
+            "x" => 180, "y" => 180, "z" => 300,
+            "posun_zprava" => 0,
+            "vodici_tyce_Z" => 0,
+            "vodici_tyce_Y" => 0,
+            "head_steps" => [
+                ["z" => 0, "xl" => 100, "xr" => 1, "yl" => 1, "yr" => 1],   // => smer_X zprava_doleva
+                ["z" => 200, "xl" => 1, "xr" => 100, "yl" => 1, "yr" => 1], // => smer_X zleva_doprava
+            ],
+        ],
+        [
+            "rozprostrit_instance_po_cele_podlozce" => false,
+            "rozprostrit_instance_v_ose_x" => false,
+            "rozprostrit_instance_v_ose_y" => false,
+        ]
+    );
+    $res = $calc->calculate([
+        ["x" => 10, "y" => 10, "z" => 150, "instances" => ["d" => 1]],
+        ["x" => 10, "y" => 10, "z" => 250, "instances" => ["d" => 1]],
+    ]);
+    assertSame("zleva_doprava", $res["printer"]["smer_X"], "Směr X podle nejvyššího objektu");
+    ok("Směr tisku podle nejvyššího objektu funguje.");
+
     ok("ALL OK");
     exit(0);
 }
