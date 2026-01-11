@@ -205,6 +205,7 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
   <head>
     <title>Sekvenční tisk</title>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
 		<script>
 			id_objektu = -1;
@@ -240,33 +241,141 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				});
 				$('#nastaveni').hide();
 				$('#zbyvajici_misto').hide();
+
+				$('#copy_json').on('click', async function () {
+					const el = document.getElementById('json_textarea');
+					if (!el) return;
+					try {
+						await navigator.clipboard.writeText(el.value);
+						$(this).text('Zkopírováno');
+						setTimeout(() => $(this).text('Kopírovat JSON'), 1200);
+					} catch (e) {
+						// fallback: select + copy
+						el.focus();
+						el.select();
+						document.execCommand('copy');
+					}
+				});
 			});
 		</script>
     <style>
-			body { padding: 1em; font: 85% Verdana, 'DejaVu Sans', 'Arial CE', Arial, 'Helvetica CE', Helvetica, sans-serif; }
-			h1 { margin-top: 0; }
-			h2 { margin-top: 0; }
-      table { margin-bottom: 1em; border-collapse: collapse; }
-      table tr th { padding: 0.2em 0.3em; border: 1px solid black; }
-      table tr td { padding: 0.2em 0.3em; border: 1px solid black; text-align: right; vertical-align: top; }
-			table tr td input { width: 4em; text-align: right; }
-			button[type=submit] { font-weight: bold; }
-			label { font-weight: bold; width: 16em; display: inline-block; }
-			#nastaveni { margin: 1em 0; padding: 1em; border: 1px solid black; }
-			#nastaveni h2 { margin: 0 0 0.3em 0; }
-			#nastaveni p { margin: 0; padding: 0; }
-			#pozice_instanci { margin: 0 2em 1em 0; float: left; }
-			#tiskova_podlozka { float: left; position: relative; width: <?php echo $tiskova_plocha["x"];?>px; height: <?php echo $tiskova_plocha["y"];?>px; border: 1px solid black; zoom: 2; }
-			#tiskova_podlozka .instance { position: absolute; border: none; background: black; font-size: 0.5em; color: white; text-align: center; vertical-align: middle; }
-			#json_h2 { clear: left; }
+			:root {
+				--bg: #f6f7fb;
+				--card: #ffffff;
+				--text: #0f172a;
+				--muted: #64748b;
+				--border: #e2e8f0;
+				--accent: #2563eb;
+				--accent-2: #0ea5e9;
+				--shadow: 0 10px 30px rgba(2, 8, 23, 0.08);
+				--radius: 14px;
+			}
+
+			* { box-sizing: border-box; }
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--text);
+				font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+			}
+			a { color: var(--accent); }
+			.container { max-width: 1200px; margin: 0 auto; padding: 18px; }
+			.header { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+			.header h1 { margin: 0; font-size: 20px; }
+			.header .sub { color: var(--muted); font-size: 13px; }
+
+			h2 { margin: 18px 0 10px; font-size: 16px; }
+			.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
+
+			.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
+			button, input[type=number] {
+				border-radius: 12px;
+				border: 1px solid var(--border);
+				background: #fff;
+				color: var(--text);
+				padding: 9px 12px;
+				font: inherit;
+			}
+			button { cursor: pointer; }
+			button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+			button.ghost { background: #fff; }
+			button.small { padding: 7px 10px; border-radius: 10px; font-size: 13px; }
+			button:active { transform: translateY(1px); }
+			input[type=number] { width: 100%; min-width: 74px; text-align: right; }
+
+			.table-wrap { overflow-x: auto; }
+			table { width: 100%; border-collapse: separate; border-spacing: 0; }
+			th, td { padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+			th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; }
+			td { text-align: right; }
+			td:first-child, th:first-child { text-align: left; }
+			tr:last-child td { border-bottom: none; }
+
+			#nastaveni { margin-top: 12px; }
+			#nastaveni .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+			#nastaveni label { display: inline-flex; gap: 10px; align-items: center; justify-content: space-between; font-weight: 600; color: var(--text); }
+			#nastaveni label span { color: var(--muted); font-weight: 500; }
+			@media (max-width: 720px) { #nastaveni .grid { grid-template-columns: 1fr; } }
+
+			.layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; align-items: start; }
+			@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+			.bed-wrap { display: grid; gap: 10px; }
+			#tiskova_podlozka {
+				position: relative;
+				width: min(92vw, 720px);
+				aspect-ratio: var(--bed-x) / var(--bed-y);
+				border-radius: 18px;
+				border: 1px solid var(--border);
+				background:
+					linear-gradient(to right, rgba(2,8,23,0.04) 1px, transparent 1px) 0 0 / 24px 24px,
+					linear-gradient(to top, rgba(2,8,23,0.04) 1px, transparent 1px) 0 0 / 24px 24px,
+					#ffffff;
+				box-shadow: var(--shadow);
+				overflow: hidden;
+				margin: 0 auto;
+			}
+			#tiskova_podlozka .instance {
+				position: absolute;
+				left: calc(var(--x) * 1%);
+				bottom: calc(var(--y) * 1%);
+				width: calc(var(--w) * 1%);
+				height: calc(var(--h) * 1%);
+				border-radius: 10px;
+				background: linear-gradient(135deg, rgba(37,99,235,0.95), rgba(14,165,233,0.9));
+				color: #fff;
+				display: grid;
+				place-items: center;
+				font-weight: 700;
+				font-size: 12px;
+				box-shadow: 0 8px 20px rgba(37,99,235,0.25);
+				user-select: none;
+			}
+			#tiskova_podlozka .instance small { opacity: 0.9; font-weight: 600; }
+
+			#json_textarea {
+				width: 100%;
+				min-height: 120px;
+				border-radius: 12px;
+				border: 1px solid var(--border);
+				padding: 10px 12px;
+				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+				font-size: 12px;
+				color: #0b1220;
+			}
     </style>
   </head>
   <body>
-		<h1>Sekvenční tisk</h1>
+		<div class="container">
+			<div class="header">
+				<h1>Sekvenční tisk</h1>
+				<div class="sub">Výpočet rozložení instancí pro sekvenční tisk</div>
+			</div>
 
 		<h2>Objekty</h2>
 
-		<form method="get" action="./index.php">
+		<form method="get" action="./index.php" class="card">
+			<div class="table-wrap">
 			<table id="objekty">
 				<tr>
 					<th rowspan="2">ID<br />objektu</th>
@@ -287,11 +396,12 @@ if (!empty($pocet_instanci_objektu)) {
 					<th>z</th>
 				</tr>
 			</table>
+			</div>
 
 			<div id="nastaveni">
 				<h2>Nastavení</h2>
 
-				<p>
+				<div class="grid">
 					<!-- TODO přidat nastavení:
 					  rozměry tiskové plochy, hlavy, vodících tyčí
 						přednastavení pro různé tiskárny (Prusa MINI, MK3...)
@@ -300,24 +410,29 @@ if (!empty($pocet_instanci_objektu)) {
 						množství filamentu - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkového množství
 						doba tisku - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkové doby
 			    -->
-					<label for="rozprostrit_instance_v_ose_x">Rozprostřít instance v ose X</label>
-					<input id="rozprostrit_instance_v_ose_x" type="checkbox" name="rozprostrit_instance_v_ose_x" value="1" <?php if($rozprostrit_instance_v_ose_x) {?>checked="checked" <?php }?>/><br />
-					<label for="rozprostrit_instance_v_ose_y">Rozprostřít instance v ose Y</label>
-					<input id="rozprostrit_instance_v_ose_y" type="checkbox" name="rozprostrit_instance_v_ose_y" value="1" <?php if($rozprostrit_instance_v_ose_y) {?>checked="checked" <?php }?>/><br />
-					<label for="umistit_na_stred_v_ose_x">Umístit na střed v ose X</label>
-					<input id="umistit_na_stred_v_ose_x" type="checkbox" name="umistit_na_stred_v_ose_x" value="1" <?php if($umistit_na_stred_v_ose_x) {?>checked="checked" <?php }?>/><br />
-					<label for="umistit_na_stred_v_ose_y">Umístit na střed v ose Y</label>
-					<input id="umistit_na_stred_v_ose_y" type="checkbox" name="umistit_na_stred_v_ose_y" value="1" <?php if($umistit_na_stred_v_ose_y) {?>checked="checked" <?php }?>/><br />
-					<label for="rozprostrit_instance_po_cele_podlozce">Rozprostřít instance po celé podložce</label>
-					<input id="rozprostrit_instance_po_cele_podlozce" type="checkbox" name="rozprostrit_instance_po_cele_podlozce" value="1" <?php if($rozprostrit_instance_po_cele_podlozce) {?>checked="checked" <?php }?>/>
-				</p>
+					<label for="rozprostrit_instance_v_ose_x">Rozprostřít instance v ose X <span>(rovnoměrně)</span>
+						<input id="rozprostrit_instance_v_ose_x" type="checkbox" name="rozprostrit_instance_v_ose_x" value="1" <?php if($rozprostrit_instance_v_ose_x) {?>checked="checked" <?php }?>/>
+					</label>
+					<label for="rozprostrit_instance_v_ose_y">Rozprostřít instance v ose Y <span>(rovnoměrně)</span>
+						<input id="rozprostrit_instance_v_ose_y" type="checkbox" name="rozprostrit_instance_v_ose_y" value="1" <?php if($rozprostrit_instance_v_ose_y) {?>checked="checked" <?php }?>/>
+					</label>
+					<label for="umistit_na_stred_v_ose_x">Umístit na střed v ose X
+						<input id="umistit_na_stred_v_ose_x" type="checkbox" name="umistit_na_stred_v_ose_x" value="1" <?php if($umistit_na_stred_v_ose_x) {?>checked="checked" <?php }?>/>
+					</label>
+					<label for="umistit_na_stred_v_ose_y">Umístit na střed v ose Y
+						<input id="umistit_na_stred_v_ose_y" type="checkbox" name="umistit_na_stred_v_ose_y" value="1" <?php if($umistit_na_stred_v_ose_y) {?>checked="checked" <?php }?>/>
+					</label>
+					<label for="rozprostrit_instance_po_cele_podlozce">Rozprostřít po celé podložce <span>(hledání řad)</span>
+						<input id="rozprostrit_instance_po_cele_podlozce" type="checkbox" name="rozprostrit_instance_po_cele_podlozce" value="1" <?php if($rozprostrit_instance_po_cele_podlozce) {?>checked="checked" <?php }?>/>
+					</label>
+				</div>
 			</div>
 
-			<p>
-				<button type="button" onclick="javascript:pridej_radek_do_tabulky();">Přidat řádek</button>
-				<button type="button" onclick="javascript:$('#nastaveni').toggle(100);">Nastavení</button>
-			  <button type="submit">Vypočítat</button>
-			</p>
+			<div class="toolbar">
+				<button class="ghost" type="button" onclick="javascript:pridej_radek_do_tabulky();">Přidat řádek</button>
+				<button class="ghost" type="button" onclick="javascript:$('#nastaveni').toggle(120);">Nastavení</button>
+			  <button class="primary" type="submit">Vypočítat</button>
+			</div>
 		</form>
 
 <?php
@@ -355,7 +470,9 @@ if (false and !empty($objekty)) {
 }
 if ($text_nad_tabulkou) {
 ?>
-		<p><?php echo $text_nad_tabulkou;?></p>
+		<div class="card" style="margin-top: 14px;">
+			<?php echo $text_nad_tabulkou;?>
+		</div>
 
 <?php
 }
@@ -422,9 +539,11 @@ if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 }
 if (!empty($pos)) {
 ?>
-		<div id="pozice_instanci">
-			<h2>Pozice instancí</h2>
+		<div class="layout" style="margin-top: 14px;">
+			<div class="card">
+				<h2>Pozice instancí</h2>
 
+			<div class="table-wrap">
 			<table>
 				<tr>
 					<th>Podložka</th>
@@ -457,12 +576,17 @@ if (!empty($pos)) {
 	}
 ?>
 			</table>
-		</div>
+			</div>
+			</div>
 
-		<div id="vizualizace">
-			<h2>Vizualizace</h2>
-
-			<div id="tiskova_podlozka">
+		<div class="bed-wrap">
+			<div class="card">
+				<h2>Vizualizace</h2>
+				<?php
+					$vizX = (isset($vysledek) && isset($vysledek["printer"]["x"]) ? (float)$vysledek["printer"]["x"] : (float)$tiskova_plocha["x"] - (float)$posun_zprava);
+					$vizY = (isset($vysledek) && isset($vysledek["printer"]["y"]) ? (float)$vysledek["printer"]["y"] : (float)$tiskova_plocha["y"]);
+				?>
+				<div id="tiskova_podlozka" style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>;">
 <?php
 	foreach ($pos as $p => $podlozka) {
 		$pocet_instanci_na_podlozce = $pocet_instanci;
@@ -479,19 +603,30 @@ if (!empty($pos)) {
 				$iy = $instance["Y"];
 				$ix_levy_dolni_roh = $ix - ($ox / 2);
 				$iy_levy_dolni_roh = $iy - ($oy / 2);
-				echo '			  <div class="instance" style="width: '.format_cislo($ox, false, 2, false, ".").'px; height: '.format_cislo($oy, false, 2, false, ".").'px; line-height: '.format_cislo($oy, false, 2, false, ".").'px; left: '.format_cislo($ix_levy_dolni_roh, false, 2, false, ".").'px; bottom: '.format_cislo($iy_levy_dolni_roh, false, 2, false, ".").'px;" title="'.$o.' - '.$i.'">'.$i.'</div>';
+				$left_pct = ($vizX > 0 ? ($ix_levy_dolni_roh / $vizX) * 100 : 0);
+				$bottom_pct = ($vizY > 0 ? ($iy_levy_dolni_roh / $vizY) * 100 : 0);
+				$w_pct = ($vizX > 0 ? ($ox / $vizX) * 100 : 0);
+				$h_pct = ($vizY > 0 ? ($oy / $vizY) * 100 : 0);
+				echo '			  <div class="instance" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="Objekt '.$o.' / instance '.$i.'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
 			}
 		}
 	}
 ?>
+				</div>
+			</div>
+
+			<div class="card">
+				<h2>JSON</h2>
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<button id="copy_json" class="small" type="button">Kopírovat JSON</button>
+				</div>
+				<textarea id="json_textarea" readonly="readonly"><?php echo($datova_veta_json);?></textarea>
 			</div>
 		</div>
-
-		<h2 id="json_h2">JSON</h2>
-
-		<p id="json"><?php echo($datova_veta_json);?></p>
+		</div>
 <?php
 }
 ?>
+	</div>
   </body>
 </html>
