@@ -479,6 +479,30 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 						document.execCommand('copy');
 					}
 				});
+
+				$('#copy_link').on('click', async function () {
+					try {
+						await navigator.clipboard.writeText(window.location.href);
+						$(this).text('Odkaz zkopírován');
+						setTimeout(() => $(this).text('Kopírovat odkaz'), 1200);
+					} catch (e) {
+						setStatus('Nelze zkopírovat odkaz');
+					}
+				});
+
+				$('#download_json').on('click', function () {
+					const el = document.getElementById('json_textarea');
+					if (!el || !el.value) return setStatus('Není co stáhnout');
+					const blob = new Blob([el.value], { type: 'application/json;charset=utf-8' });
+					const url = URL.createObjectURL(blob);
+					const a = document.createElement('a');
+					a.href = url;
+					a.download = 'sekvencni-tisk-positions.json';
+					document.body.appendChild(a);
+					a.click();
+					a.remove();
+					URL.revokeObjectURL(url);
+				});
 			});
 		</script>
     <style>
@@ -548,7 +572,7 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				position: relative;
 				width: min(92vw, 720px);
 				aspect-ratio: var(--bed-x) / var(--bed-y);
-				border-radius: 18px;
+				border-radius: 0;
 				border: 1px solid var(--border);
 				background:
 					linear-gradient(to right, rgba(2,8,23,0.04) 1px, transparent 1px) 0 0 / 24px 24px,
@@ -693,6 +717,7 @@ if (!empty($pocet_instanci_objektu)) {
 				<button class="ghost" id="clear_local" type="button" title="Smaže uložené nastavení">Smazat</button>
 				<button class="ghost" id="export_input" type="button" title="Export vstupu (objekty + nastavení) do JSON">Export</button>
 				<button class="ghost" id="import_input" type="button" title="Import vstupu (objekty + nastavení) z JSON">Import</button>
+				<button class="ghost" id="copy_link" type="button" title="Zkopíruje odkaz pro sdílení konfigurace">Kopírovat odkaz</button>
 			  <button class="primary" type="submit">Vypočítat</button>
 				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
 			</div>
@@ -903,6 +928,7 @@ if (!empty($pos)) {
 				<h2>JSON</h2>
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<button id="copy_json" class="small" type="button">Kopírovat JSON</button>
+					<button id="download_json" class="small" type="button">Stáhnout JSON</button>
 				</div>
 				<textarea id="json_textarea" readonly="readonly"><?php echo($datova_veta_json);?></textarea>
 			</div>
