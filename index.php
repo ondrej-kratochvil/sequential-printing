@@ -637,7 +637,7 @@ header("Expires: 0");
 
 				$('#toggle_head').on('click', function () {
 					headEnabled = !headEnabled;
-					$('#head_controls').toggle(headEnabled);
+					$('#head_controls').css('display', headEnabled ? 'inline-flex' : 'none');
 					$(this).text(headEnabled ? 'Skrýt tiskovou hlavu' : 'Zobrazit tiskovou hlavu');
 					if (headEnabled) {
 						// Default: 2. instance (pokud existuje)
@@ -651,24 +651,29 @@ header("Expires: 0");
 				$('#head_prev').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx - 1); });
 				$('#head_next').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx + 1); });
 
-				// Mobil: po výpočtu nech otevřené jen souhrn + vizualizaci
+				// Mobil: po výpočtu schovej celé sekce (včetně nadpisu) a nech jen tlačítka
 				function applyMobileCollapse() {
 					const isSmall = window.matchMedia && window.matchMedia('(max-width: 720px)').matches;
 					const hasResult = document.querySelector('[data-has-result="1"]');
 					if (!isSmall || !hasResult) return;
-					document.querySelectorAll('.mobile-collapsible').forEach(sec => {
-						if (sec.dataset.keepOpen === '1') return;
-						sec.classList.add('is-collapsed');
-						const btn = sec.querySelector('.mobile-toggle');
-						if (btn) btn.textContent = 'Zobrazit sekci';
+					['#section_form', '#section_positions', '#section_json'].forEach(sel => {
+						const el = document.querySelector(sel);
+						if (el) el.classList.add('mobile-hidden');
 					});
 				}
 				applyMobileCollapse();
-				$(document).on('click', '.mobile-toggle', function(){
-					const sec = this.closest('.mobile-collapsible');
-					if (!sec) return;
-					sec.classList.toggle('is-collapsed');
-					this.textContent = sec.classList.contains('is-collapsed') ? 'Zobrazit sekci' : 'Skrýt sekci';
+				$(document).on('click', '.mobile-section-toggle', function(){
+					const target = this.getAttribute('data-target');
+					const el = target ? document.querySelector(target) : null;
+					if (!el) return;
+					const isHidden = el.classList.contains('mobile-hidden');
+					if (isHidden) {
+						el.classList.remove('mobile-hidden');
+						this.textContent = 'Skrýt sekci';
+					} else {
+						el.classList.add('mobile-hidden');
+						this.textContent = 'Zobrazit sekci';
+					}
 				});
 			});
 		</script>
@@ -750,7 +755,7 @@ header("Expires: 0");
 				overflow: hidden;
 				margin: 0 auto;
 			}
-			#tiskova_podlozka .overlay { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+			#tiskova_podlozka .overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
 			#tiskova_podlozka .rod {
 				position: absolute;
 				left: 0;
@@ -829,10 +834,12 @@ header("Expires: 0");
 			#io_text { width: 100%; min-height: 220px; }
 			#tiskova_podlozka .instance small { opacity: 0.9; font-weight: 600; }
 
-			/* Mobile: po výpočtu schovej sekundární sekce */
+			/* Mobile: po výpočtu schovej sekundární sekce (celá sekce včetně nadpisu) */
+			.mobile-section-toggle { display: none; }
 			@media (max-width: 720px) {
-				.mobile-collapsible.is-collapsed .mobile-content { display: none; }
-				.mobile-collapsible .mobile-toggle { width: 100%; justify-content: center; }
+				.mobile-section-toggle { display: inline-flex; width: 100%; justify-content: center; margin: 10px 0; }
+				.mobile-section { display: block; }
+				.mobile-hidden { display: none !important; }
 			}
 
 			#json_textarea {
@@ -854,14 +861,11 @@ header("Expires: 0");
 				<div class="sub">Výpočet rozložení instancí pro sekvenční tisk</div>
 			</div>
 
+		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form">Zobrazit formulář</button>
+		<div id="section_form" class="mobile-section">
 		<h2>Objekty</h2>
 
-		<form method="get" action="./index.php" class="card mobile-collapsible" data-keep-open="0">
-			<div class="toolbar" style="margin: 0 0 8px;">
-				<h2 style="margin:0; flex:1;">Formulář</h2>
-				<button class="small ghost mobile-toggle" type="button">Skrýt sekci</button>
-			</div>
-			<div class="mobile-content">
+		<form method="get" action="./index.php" class="card">
 			<div class="table-wrap">
 			<table id="objekty">
 				<tr>
@@ -928,8 +932,8 @@ if (!empty($pocet_instanci_objektu)) {
 			  <button class="primary" type="submit">Vypočítat</button>
 				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
 			</div>
-			</div>
 		</form>
+		</div>
 
 		<div id="io_modal" class="modal" hidden="hidden">
 			<div class="panel">
@@ -1051,13 +1055,9 @@ if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 if (!empty($pos)) {
 ?>
 		<div class="layout" style="margin-top: 14px;">
-			<div class="card mobile-collapsible" data-keep-open="0">
-				<div class="toolbar" style="margin: 0 0 8px;">
-					<h2 style="margin:0; flex:1;">Pozice instancí</h2>
-					<button class="small ghost mobile-toggle" type="button">Skrýt sekci</button>
-				</div>
-
-			<div class="mobile-content">
+			<button id="toggle_section_positions" class="ghost small mobile-section-toggle" type="button" data-target="#section_positions">Zobrazit pozice instancí</button>
+			<div id="section_positions" class="card mobile-section">
+				<h2>Pozice instancí</h2>
 			<div class="table-wrap">
 			<table>
 				<tr>
@@ -1093,14 +1093,13 @@ if (!empty($pos)) {
 			</table>
 			</div>
 			</div>
-			</div>
 
 		<div class="bed-wrap">
 			<div class="card">
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<h2 style="margin:0; flex:1;">Vizualizace</h2>
 					<button id="toggle_head" class="small ghost" type="button">Zobrazit tiskovou hlavu</button>
-					<span id="head_controls" style="display:none; gap:6px;">
+					<span id="head_controls" style="display:none; gap:6px; align-items:center;">
 						<button id="head_prev" class="small ghost" type="button" title="Předchozí instance">←</button>
 						<button id="head_next" class="small ghost" type="button" title="Další instance">→</button>
 					</span>
@@ -1151,18 +1150,14 @@ if (!empty($pos)) {
 				<div id="instance_details" style="margin-top: 10px; color: var(--muted); font-size: 13px; white-space: pre-wrap;"></div>
 			</div>
 
-			<div class="card mobile-collapsible" data-keep-open="0">
-				<div class="toolbar" style="margin: 0 0 8px;">
-					<h2 style="margin:0; flex:1;">JSON</h2>
-					<button class="small ghost mobile-toggle" type="button">Skrýt sekci</button>
-				</div>
-				<div class="mobile-content">
+			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json">Zobrazit JSON</button>
+			<div id="section_json" class="card mobile-section">
+				<h2>JSON</h2>
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<button id="copy_json" class="small" type="button">Kopírovat JSON</button>
 					<button id="download_json" class="small" type="button">Stáhnout JSON</button>
 				</div>
 				<textarea id="json_textarea" readonly="readonly"><?php echo($datova_veta_json);?></textarea>
-				</div>
 			</div>
 		</div>
 		</div>
