@@ -503,18 +503,163 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 					a.remove();
 					URL.revokeObjectURL(url);
 				});
+
+				// Mobil: detaily bez hover + „tisková hlava“
+				let headEnabled = false;
+				let selectedIdx = null;
+
+				function setDetails(text) {
+					const el = document.getElementById('instance_details');
+					if (!el) return;
+					el.textContent = text || '';
+				}
+
+				function pickHeadStep(headSteps, height) {
+					if (!Array.isArray(headSteps) || headSteps.length === 0) return null;
+					let best = headSteps[0];
+					for (const s of headSteps) {
+						if (Number(s.z) <= height) best = s;
+						else break;
+					}
+					return best;
+				}
+
+				function renderHeadForSelection() {
+					const bed = document.getElementById('tiskova_podlozka');
+					if (!bed) return;
+					const overlay = bed.querySelector('.overlay');
+					if (!overlay) return;
+					overlay.innerHTML = '';
+
+					const instances = bed.querySelectorAll('.instance');
+					instances.forEach(el => el.classList.remove('selected'));
+					if (!headEnabled || selectedIdx === null || !instances[selectedIdx]) return;
+
+					const el = instances[selectedIdx];
+					el.classList.add('selected');
+
+					const bedX = parseFloat(bed.style.getPropertyValue('--bed-x')) || 1;
+					const bedY = parseFloat(bed.style.getPropertyValue('--bed-y')) || 1;
+
+					const o = parseInt(el.dataset.o || '0', 10);
+					const i = parseInt(el.dataset.i || '0', 10);
+					const ox = parseFloat(el.dataset.ox || '0');
+					const oy = parseFloat(el.dataset.oy || '0');
+					const oz = parseFloat(el.dataset.oz || '0');
+					const left = parseFloat(el.dataset.left || '0');
+					const bottom = parseFloat(el.dataset.bottom || '0');
+
+					// Výchozí předpoklad: tryska na středu instance.
+					const nozzleX = left + ox / 2;
+					const nozzleY = bottom + oy / 2;
+
+					let headSteps = [];
+					let printer = {};
+					try { headSteps = bed.dataset.headSteps ? JSON.parse(bed.dataset.headSteps) : []; } catch (e) { headSteps = []; }
+					try { printer = bed.dataset.printer ? JSON.parse(bed.dataset.printer) : {}; } catch (e) { printer = {}; }
+
+					const step = pickHeadStep(headSteps, oz) || { Xl: printer.Xl, Xr: printer.Xr, Yl: printer.Yl, Yr: printer.Yr };
+
+					const hx0 = nozzleX - (parseFloat(step.Xl) || 0);
+					const hx1 = nozzleX + (parseFloat(step.Xr) || 0);
+					const hy0 = nozzleY - (parseFloat(step.Yl) || 0);
+					const hy1 = nozzleY + (parseFloat(step.Yr) || 0);
+
+					const head = document.createElement('div');
+					head.className = 'head';
+					head.style.left = (hx0 / bedX * 100) + '%';
+					head.style.bottom = (hy0 / bedY * 100) + '%';
+					head.style.width = ((hx1 - hx0) / bedX * 100) + '%';
+					head.style.height = ((hy1 - hy0) / bedY * 100) + '%';
+					overlay.appendChild(head);
+
+					const noz = document.createElement('div');
+					noz.className = 'nozzle';
+					noz.style.left = (nozzleX / bedX * 100) + '%';
+					noz.style.bottom = (nozzleY / bedY * 100) + '%';
+					overlay.appendChild(noz);
+
+					if (printer && printer.vodici_tyce_Y !== undefined) {
+						const rod = document.createElement('div');
+						rod.className = 'rod';
+						rod.style.bottom = (parseFloat(printer.vodici_tyce_Y) / bedY * 100) + '%';
+						overlay.appendChild(rod);
+					}
+
+					const zInfo = (printer && printer.vodici_tyce_Z !== undefined) ? `, vodící tyče od Z=${printer.vodici_tyce_Z}mm` : '';
+					setDetails(`Vybráno: Objekt ${o}, instance ${i} — výška ${oz}mm${zInfo}`);
+				}
+
+				function setSelected(idx) {
+					const bed = document.getElementById('tiskova_podlozka');
+					if (!bed) return;
+					const instances = bed.querySelectorAll('.instance');
+					if (!instances.length) return;
+					selectedIdx = Math.max(0, Math.min(idx, instances.length - 1));
+					renderHeadForSelection();
+				}
+
+				$(document).on('click', '#tiskova_podlozka .instance', function () {
+					const bed = document.getElementById('tiskova_podlozka');
+					const instances = bed ? bed.querySelectorAll('.instance') : [];
+					const idx = Array.prototype.indexOf.call(instances, this);
+					if (idx >= 0) {
+						// Na klik vždy vyberu instanci (a zobrazím detaily); hlava jen pokud je zapnutá.
+						const o = this.dataset.o || '?';
+						const i = this.dataset.i || '?';
+						setDetails(`Objekt ${o}, instance ${i}\n${this.getAttribute('title') || ''}`);
+						setSelected(idx);
+					}
+				});
+
+				$('#toggle_head').on('click', function () {
+					headEnabled = !headEnabled;
+					$('#head_controls').toggle(headEnabled);
+					$(this).text(headEnabled ? 'Skrýt tiskovou hlavu' : 'Zobrazit tiskovou hlavu');
+					if (headEnabled) {
+						// Default: 2. instance (pokud existuje)
+						const bed = document.getElementById('tiskova_podlozka');
+						const instances = bed ? bed.querySelectorAll('.instance') : [];
+						setSelected(instances.length >= 2 ? 1 : 0);
+					} else {
+						renderHeadForSelection();
+					}
+				});
+				$('#head_prev').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx - 1); });
+				$('#head_next').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx + 1); });
+
+				// Mobil: po výpočtu nech otevřené jen souhrn + vizualizaci
+				function applyMobileCollapse() {
+					const isSmall = window.matchMedia && window.matchMedia('(max-width: 720px)').matches;
+					const hasResult = document.querySelector('[data-has-result="1"]');
+					if (!isSmall || !hasResult) return;
+					document.querySelectorAll('.mobile-collapsible').forEach(sec => {
+						if (sec.dataset.keepOpen === '1') return;
+						sec.classList.add('is-collapsed');
+						const btn = sec.querySelector('.mobile-toggle');
+						if (btn) btn.textContent = 'Zobrazit sekci';
+					});
+				}
+				applyMobileCollapse();
+				$(document).on('click', '.mobile-toggle', function(){
+					const sec = this.closest('.mobile-collapsible');
+					if (!sec) return;
+					sec.classList.toggle('is-collapsed');
+					this.textContent = sec.classList.contains('is-collapsed') ? 'Zobrazit sekci' : 'Skrýt sekci';
+				});
 			});
 		</script>
     <style>
 			:root {
-				--bg: #f6f7fb;
+				/* Theme: inspirováno PrusaSlicer (oranžová + neutrální šedá) */
+				--bg: #f2f2f2;
 				--card: #ffffff;
-				--text: #0f172a;
-				--muted: #64748b;
-				--border: #e2e8f0;
-				--accent: #2563eb;
-				--accent-2: #0ea5e9;
-				--shadow: 0 10px 30px rgba(2, 8, 23, 0.08);
+				--text: #1f2937;
+				--muted: #6b7280;
+				--border: #d1d5db;
+				--accent: #f57c00;
+				--accent-2: #ff9800;
+				--shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 				--radius: 14px;
 			}
 
@@ -582,6 +727,29 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				overflow: hidden;
 				margin: 0 auto;
 			}
+			#tiskova_podlozka .overlay { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+			#tiskova_podlozka .rod {
+				position: absolute;
+				left: 0;
+				right: 0;
+				height: 2px;
+				background: rgba(31,41,55,0.45);
+			}
+			#tiskova_podlozka .head {
+				position: absolute;
+				border: 2px solid rgba(245,124,0,0.85);
+				background: rgba(245,124,0,0.10);
+			}
+			#tiskova_podlozka .nozzle {
+				position: absolute;
+				width: 8px;
+				height: 8px;
+				margin-left: -4px;
+				margin-bottom: -4px;
+				border-radius: 50%;
+				background: rgba(245,124,0,0.95);
+				box-shadow: 0 6px 16px rgba(245,124,0,0.35);
+			}
 			#tiskova_podlozka .instance {
 				position: absolute;
 				left: calc(var(--x) * 1%);
@@ -589,18 +757,23 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				width: calc(var(--w) * 1%);
 				height: calc(var(--h) * 1%);
 				border-radius: 0;
-				background: linear-gradient(135deg, rgba(37,99,235,0.95), rgba(14,165,233,0.9));
+				background: linear-gradient(135deg, rgba(245,124,0,0.95), rgba(255,152,0,0.92));
 				color: #fff;
 				display: grid;
 				place-items: center;
 				font-weight: 700;
 				font-size: 12px;
-				box-shadow: 0 8px 20px rgba(37,99,235,0.25);
+				box-shadow: 0 8px 20px rgba(245,124,0,0.22);
 				user-select: none;
+				z-index: 2;
 			}
 			#tiskova_podlozka .instance:hover {
-				outline: 3px solid rgba(14,165,233,0.35);
+				outline: 3px solid rgba(245,124,0,0.35);
 				outline-offset: 2px;
+			}
+			#tiskova_podlozka .instance.selected {
+				outline: 3px solid rgba(245,124,0,0.60);
+				outline-offset: 1px;
 			}
 
 			.modal {
@@ -633,6 +806,12 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 			#io_text { width: 100%; min-height: 220px; }
 			#tiskova_podlozka .instance small { opacity: 0.9; font-weight: 600; }
 
+			/* Mobile: po výpočtu schovej sekundární sekce */
+			@media (max-width: 720px) {
+				.mobile-collapsible.is-collapsed .mobile-content { display: none; }
+				.mobile-collapsible .mobile-toggle { width: 100%; justify-content: center; }
+			}
+
 			#json_textarea {
 				width: 100%;
 				min-height: 120px;
@@ -654,7 +833,12 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 
 		<h2>Objekty</h2>
 
-		<form method="get" action="./index.php" class="card">
+		<form method="get" action="./index.php" class="card mobile-collapsible" data-keep-open="0">
+			<div class="toolbar" style="margin: 0 0 8px;">
+				<h2 style="margin:0; flex:1;">Formulář</h2>
+				<button class="small ghost mobile-toggle" type="button">Skrýt sekci</button>
+			</div>
+			<div class="mobile-content">
 			<div class="table-wrap">
 			<table id="objekty">
 				<tr>
@@ -721,6 +905,7 @@ if (!empty($pocet_instanci_objektu)) {
 			  <button class="primary" type="submit">Vypočítat</button>
 				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
 			</div>
+			</div>
 		</form>
 
 		<div id="io_modal" class="modal" hidden="hidden">
@@ -773,7 +958,7 @@ if (false and !empty($objekty)) {
 }
 if ($text_nad_tabulkou) {
 ?>
-		<div class="card" style="margin-top: 14px;">
+		<div class="card" style="margin-top: 14px;" data-has-result="1">
 			<?php echo $text_nad_tabulkou;?>
 		</div>
 
@@ -843,9 +1028,13 @@ if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 if (!empty($pos)) {
 ?>
 		<div class="layout" style="margin-top: 14px;">
-			<div class="card">
-				<h2>Pozice instancí</h2>
+			<div class="card mobile-collapsible" data-keep-open="0">
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 style="margin:0; flex:1;">Pozice instancí</h2>
+					<button class="small ghost mobile-toggle" type="button">Skrýt sekci</button>
+				</div>
 
+			<div class="mobile-content">
 			<div class="table-wrap">
 			<table>
 				<tr>
@@ -881,10 +1070,18 @@ if (!empty($pos)) {
 			</table>
 			</div>
 			</div>
+			</div>
 
 		<div class="bed-wrap">
 			<div class="card">
-				<h2>Vizualizace</h2>
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 style="margin:0; flex:1;">Vizualizace</h2>
+					<button id="toggle_head" class="small ghost" type="button">Zobrazit tiskovou hlavu</button>
+					<span id="head_controls" style="display:none; gap:6px;">
+						<button id="head_prev" class="small ghost" type="button" title="Předchozí instance">←</button>
+						<button id="head_next" class="small ghost" type="button" title="Další instance">→</button>
+					</span>
+				</div>
 				<?php
 					$vizX = (isset($vysledek) && isset($vysledek["printer"]["x"]) ? (float)$vysledek["printer"]["x"] : (float)$tiskova_plocha["x"] - (float)$posun_zprava);
 					$vizY = (isset($vysledek) && isset($vysledek["printer"]["y"]) ? (float)$vysledek["printer"]["y"] : (float)$tiskova_plocha["y"]);
@@ -892,7 +1089,11 @@ if (!empty($pos)) {
 				<div style="color: var(--muted); font-size: 13px; margin: 0 0 10px;">
 					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Hover pro detaily
 				</div>
-				<div id="tiskova_podlozka" style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>;">
+				<div id="tiskova_podlozka"
+						 data-printer='<?php echo htmlspecialchars(json_encode($vysledek["printer"] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
+						 data-head-steps='<?php echo htmlspecialchars(json_encode(($vysledek["printer"]["head_steps"] ?? []), JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
+						 style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>;">
+					<div class="overlay"></div>
 <?php
 	foreach ($pos as $p => $podlozka) {
 		$pocet_instanci_na_podlozce = $pocet_instanci;
@@ -916,21 +1117,27 @@ if (!empty($pos)) {
 				$title = 'Objekt '.$o.' / instance '.$i."\n".
 					'Rozměr: '.format_cislo($ox, false, 2).'×'.format_cislo($oy, false, 2).'×'.format_cislo($oz, false, 2)." mm\n".
 					'Pozice (levý přední roh): '.format_cislo($ix_levy_dolni_roh, false, 2).' ; '.format_cislo($iy_levy_dolni_roh, false, 2).' mm';
-				echo '			  <div class="instance" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
+				echo '			  <div class="instance" data-o="'.$o.'" data-i="'.$i.'" data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
 			}
 		}
 	}
 ?>
 				</div>
+				<div id="instance_details" style="margin-top: 10px; color: var(--muted); font-size: 13px; white-space: pre-wrap;"></div>
 			</div>
 
-			<div class="card">
-				<h2>JSON</h2>
+			<div class="card mobile-collapsible" data-keep-open="0">
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 style="margin:0; flex:1;">JSON</h2>
+					<button class="small ghost mobile-toggle" type="button">Skrýt sekci</button>
+				</div>
+				<div class="mobile-content">
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<button id="copy_json" class="small" type="button">Kopírovat JSON</button>
 					<button id="download_json" class="small" type="button">Stáhnout JSON</button>
 				</div>
 				<textarea id="json_textarea" readonly="readonly"><?php echo($datova_veta_json);?></textarea>
+				</div>
 			</div>
 		</div>
 		</div>
