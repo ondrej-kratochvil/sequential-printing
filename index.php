@@ -564,7 +564,8 @@ header("Expires: 0");
 					// Tryska v nejvíc kolizním rohu podle globálního směru tisku.
 					const smerX = (printer && printer.smer_X) ? printer.smer_X : 'zleva_doprava';
 					const smerY = (printer && printer.smer_Y) ? printer.smer_Y : 'zepredu_dozadu';
-					const nozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
+					// Podle upřesnění: při tisku "zprava" je kolizní strana vpravo.
+					const nozzleX = (smerX === 'zleva_doprava') ? left : (left + ox);
 					const nozzleY = (smerY === 'zepredu_dozadu') ? bottom : (bottom + oy);
 
 					const step = pickHeadStep(headSteps, oz) || { Xl: printer.Xl, Xr: printer.Xr, Yl: printer.Yl, Yr: printer.Yr };
@@ -605,7 +606,11 @@ header("Expires: 0");
 					if (showRod && printer && printer.vodici_tyce_Y !== undefined) {
 						const rod = document.createElement('div');
 						rod.className = 'rod';
-						rod.style.bottom = (parseFloat(printer.vodici_tyce_Y) / bedY * 100) + '%';
+						const vodiciY = parseFloat(printer.vodici_tyce_Y);
+						// Vodící tyče jsou na pohyblivé části – zobrazíme je relativně k trysce.
+						const rodY = (smerY === 'zepredu_dozadu') ? (nozzleY + vodiciY) : (nozzleY - vodiciY);
+						const rodYClamped = Math.max(0, Math.min(bedY, rodY));
+						rod.style.bottom = (rodYClamped / bedY * 100) + '%';
 						overlay.appendChild(rod);
 					}
 
@@ -721,7 +726,17 @@ header("Expires: 0");
 			}
 			a { color: var(--accent); }
 			.container { max-width: 1200px; margin: 0 auto; padding: 18px; }
-			.header { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+			.header {
+				display: flex;
+				gap: 12px;
+				align-items: baseline;
+				justify-content: space-between;
+				margin-bottom: 14px;
+				background: var(--bg-header);
+				border: 1px solid var(--border-color);
+				border-radius: var(--radius);
+				padding: 12px 14px;
+			}
 			.header h1 { margin: 0; font-size: 20px; }
 			.header .sub { color: var(--muted); font-size: 13px; }
 
@@ -864,7 +879,14 @@ header("Expires: 0");
 			/* Mobile: po výpočtu schovej sekundární sekce (celá sekce včetně nadpisu) */
 			.mobile-section-toggle { display: none; }
 			@media (max-width: 720px) {
-				.mobile-section-toggle { display: inline-flex; width: auto; justify-content: flex-start; margin: 10px 0; }
+				.mobile-section-toggle {
+					display: inline-flex;
+					width: auto;
+					justify-content: flex-start;
+					justify-self: start;
+					align-self: start;
+					margin: 10px 0;
+				}
 				.mobile-section { display: block; }
 				.mobile-hidden { display: none !important; }
 			}
