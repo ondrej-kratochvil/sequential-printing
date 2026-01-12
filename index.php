@@ -441,6 +441,14 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 					openModal();
 				});
 				$('#io_close').on('click', closeModal);
+				// zavření klikem mimo panel
+				$('#io_modal').on('click', function (e) {
+					if (e.target && e.target.id === 'io_modal') closeModal();
+				});
+				// zavření klávesou ESC
+				$(document).on('keydown', function (e) {
+					if (e.key === 'Escape') closeModal();
+				});
 				$('#io_copy').on('click', async function () {
 					const el = document.getElementById('io_text');
 					if (!el) return;
@@ -580,6 +588,7 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				padding: 16px;
 				z-index: 50;
 			}
+			.modal[hidden] { display: none !important; }
 			.modal .panel {
 				width: min(92vw, 900px);
 				background: #fff;
