@@ -220,6 +220,12 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 	exit;
 }
 
+// Cache busting / no-cache pro HTML (mobilní prohlížeče často agresivně cachují).
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+header("Expires: 0");
+
 /* Vypsání HTML */
 ?>
 <!DOCTYPE html>
@@ -228,7 +234,8 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
     <title>Sekvenční tisk</title>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
+		<?php $APP_VERSION = (string)@filemtime(__FILE__); ?>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js?v=<?php echo htmlspecialchars($APP_VERSION, ENT_QUOTES, "UTF-8");?>"></script>
 		<script>
 			id_objektu = -1;
 			objekty = <?php echo (!empty($objekty) ? json_encode($objekty) : "[]");?>;
@@ -531,7 +538,7 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 					if (!overlay) return;
 					overlay.innerHTML = '';
 
-					const instances = bed.querySelectorAll('.instance');
+					const instances = Array.from(bed.querySelectorAll('.instance'));
 					instances.forEach(el => el.classList.remove('selected'));
 					if (!headEnabled || selectedIdx === null || !instances[selectedIdx]) return;
 
@@ -549,9 +556,11 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 					const left = parseFloat(el.dataset.left || '0');
 					const bottom = parseFloat(el.dataset.bottom || '0');
 
-					// Výchozí předpoklad: tryska na středu instance.
-					const nozzleX = left + ox / 2;
-					const nozzleY = bottom + oy / 2;
+					// Tryska v nejvíc kolizním rohu podle globálního směru tisku.
+					const smerX = printer?.smer_X || 'zleva_doprava';
+					const smerY = printer?.smer_Y || 'zepredu_dozadu';
+					const nozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
+					const nozzleY = (smerY === 'zepredu_dozadu') ? bottom : (bottom + oy);
 
 					let headSteps = [];
 					let printer = {};
@@ -579,14 +588,28 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 					noz.style.bottom = (nozzleY / bedY * 100) + '%';
 					overlay.appendChild(noz);
 
-					if (printer && printer.vodici_tyce_Y !== undefined) {
+					// Vodící tyč zobraz jen když nějaký dřívější objekt (v pořadí tisku) byl vyšší než prahová Z.
+					const vodiciZ = (printer && printer.vodici_tyce_Z !== undefined) ? parseFloat(printer.vodici_tyce_Z) : null;
+					let showRod = false;
+					if (vodiciZ !== null && Number.isFinite(vodiciZ)) {
+						const selectedSeq = parseInt(el.dataset.seq || '0', 10);
+						for (const inst of instances) {
+							const seq = parseInt(inst.dataset.seq || '0', 10);
+							if (seq > 0 && seq < selectedSeq) {
+								const zPrev = parseFloat(inst.dataset.oz || '0');
+								if (zPrev > vodiciZ) { showRod = true; break; }
+							}
+						}
+					}
+
+					if (showRod && printer && printer.vodici_tyce_Y !== undefined) {
 						const rod = document.createElement('div');
 						rod.className = 'rod';
 						rod.style.bottom = (parseFloat(printer.vodici_tyce_Y) / bedY * 100) + '%';
 						overlay.appendChild(rod);
 					}
 
-					const zInfo = (printer && printer.vodici_tyce_Z !== undefined) ? `, vodící tyče od Z=${printer.vodici_tyce_Z}mm` : '';
+					const zInfo = (showRod && printer && printer.vodici_tyce_Z !== undefined) ? `, vodící tyče od Z=${printer.vodici_tyce_Z}mm` : '';
 					setDetails(`Vybráno: Objekt ${o}, instance ${i} — výška ${oz}mm${zInfo}`);
 				}
 
@@ -1095,11 +1118,13 @@ if (!empty($pos)) {
 						 style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>;">
 					<div class="overlay"></div>
 <?php
+	$seq = 0;
 	foreach ($pos as $p => $podlozka) {
 		$pocet_instanci_na_podlozce = $pocet_instanci;
 		foreach ($podlozka as $y => $rada) {
 			$pocet_instanci_v_rade = count($rada);
 			foreach ($rada as $x => $instance) {
+				$seq++;
 				$o = $instance["o"];
 				$i = $instance["i"];
 				$objekt = $objekty_serazene[($o - 1)];
@@ -1117,7 +1142,7 @@ if (!empty($pos)) {
 				$title = 'Objekt '.$o.' / instance '.$i."\n".
 					'Rozměr: '.format_cislo($ox, false, 2).'×'.format_cislo($oy, false, 2).'×'.format_cislo($oz, false, 2)." mm\n".
 					'Pozice (levý přední roh): '.format_cislo($ix_levy_dolni_roh, false, 2).' ; '.format_cislo($iy_levy_dolni_roh, false, 2).' mm';
-				echo '			  <div class="instance" data-o="'.$o.'" data-i="'.$i.'" data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
+				echo '			  <div class="instance" data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'" data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
 			}
 		}
 	}
