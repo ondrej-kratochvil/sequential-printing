@@ -556,16 +556,16 @@ header("Expires: 0");
 					const left = parseFloat(el.dataset.left || '0');
 					const bottom = parseFloat(el.dataset.bottom || '0');
 
-					// Tryska v nejvíc kolizním rohu podle globálního směru tisku.
-					const smerX = printer?.smer_X || 'zleva_doprava';
-					const smerY = printer?.smer_Y || 'zepredu_dozadu';
-					const nozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
-					const nozzleY = (smerY === 'zepredu_dozadu') ? bottom : (bottom + oy);
-
 					let headSteps = [];
 					let printer = {};
 					try { headSteps = bed.dataset.headSteps ? JSON.parse(bed.dataset.headSteps) : []; } catch (e) { headSteps = []; }
 					try { printer = bed.dataset.printer ? JSON.parse(bed.dataset.printer) : {}; } catch (e) { printer = {}; }
+
+					// Tryska v nejvíc kolizním rohu podle globálního směru tisku.
+					const smerX = (printer && printer.smer_X) ? printer.smer_X : 'zleva_doprava';
+					const smerY = (printer && printer.smer_Y) ? printer.smer_Y : 'zepredu_dozadu';
+					const nozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
+					const nozzleY = (smerY === 'zepredu_dozadu') ? bottom : (bottom + oy);
 
 					const step = pickHeadStep(headSteps, oz) || { Xl: printer.Xl, Xr: printer.Xr, Yl: printer.Yl, Yr: printer.Yr };
 
@@ -679,15 +679,36 @@ header("Expires: 0");
 		</script>
     <style>
 			:root {
-				/* Theme: inspirováno PrusaSlicer (oranžová + neutrální šedá) */
-				--bg: #f2f2f2;
-				--card: #ffffff;
-				--text: #1f2937;
-				--muted: #6b7280;
-				--border: #d1d5db;
-				--accent: #f57c00;
-				--accent-2: #ff9800;
-				--shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+				/* --- PrusaSlicer Accurate Palette --- */
+				--bg-body: #202020;       /* Main window background */
+				--bg-panel: #292929;      /* Panels / Sidebar */
+				--bg-input: #1a1a1a;      /* Inset inputs */
+				--bg-header: #181818;     /* Top strip / Brand area */
+				--bg-active: #383838;     /* Hover states / Active rows */
+
+				--accent-primary: #fd6925; /* Official Prusa Orange */
+				--accent-hover: #e0551a;
+				--accent-text: #ffffff;
+
+				--text-main: #eeeeee;
+				--text-muted: #999999;
+
+				--border-color: #444444;  /* Standard border */
+				--border-input: #555555;  /* Input specific border */
+				--border-focus: #fd6925;
+
+				--success: #75b54b;
+				--danger: #ff4d4d;
+
+				/* Back-compat proměnné */
+				--bg: var(--bg-body);
+				--card: var(--bg-panel);
+				--text: var(--text-main);
+				--muted: var(--text-muted);
+				--border: var(--border-color);
+				--accent: var(--accent-primary);
+				--accent-2: var(--accent-hover);
+				--shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 				--radius: 14px;
 			}
 
@@ -708,25 +729,31 @@ header("Expires: 0");
 			.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
 
 			.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
-			button, input[type=number] {
+			button, input[type=number], textarea {
 				border-radius: 12px;
-				border: 1px solid var(--border);
-				background: #fff;
+				border: 1px solid var(--border-input);
+				background: var(--bg-input);
 				color: var(--text);
 				padding: 9px 12px;
 				font: inherit;
 			}
 			button { cursor: pointer; }
-			button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-			button.ghost { background: #fff; }
+			button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 700; }
+			button.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+			button.ghost { background: var(--card); }
+			button:hover { background: var(--bg-active); }
 			button.small { padding: 7px 10px; border-radius: 10px; font-size: 13px; }
 			button:active { transform: translateY(1px); }
 			input[type=number] { width: 100%; min-width: 74px; text-align: right; }
+			input[type=number]:focus, textarea:focus, button:focus {
+				outline: 2px solid var(--border-focus);
+				outline-offset: 1px;
+			}
 
 			.table-wrap { overflow-x: auto; }
 			table { width: 100%; border-collapse: separate; border-spacing: 0; }
-			th, td { padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-			th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; }
+			th, td { padding: 10px 10px; border-bottom: 1px solid var(--border-color); vertical-align: top; }
+			th { text-align: left; color: var(--muted); font-weight: 700; font-size: 12px; }
 			td { text-align: right; }
 			td:first-child, th:first-child { text-align: left; }
 			tr:last-child td { border-bottom: none; }
@@ -746,11 +773,11 @@ header("Expires: 0");
 				width: min(92vw, 720px);
 				aspect-ratio: var(--bed-x) / var(--bed-y);
 				border-radius: 0;
-				border: 1px solid var(--border);
+				border: 1px solid var(--border-color);
 				background:
-					linear-gradient(to right, rgba(2,8,23,0.04) 1px, transparent 1px) 0 0 / 24px 24px,
-					linear-gradient(to top, rgba(2,8,23,0.04) 1px, transparent 1px) 0 0 / 24px 24px,
-					#ffffff;
+					linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 24px 24px,
+					linear-gradient(to top, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 24px 24px,
+					var(--bg-input);
 				box-shadow: var(--shadow);
 				overflow: hidden;
 				margin: 0 auto;
@@ -761,12 +788,12 @@ header("Expires: 0");
 				left: 0;
 				right: 0;
 				height: 2px;
-				background: rgba(31,41,55,0.45);
+				background: rgba(238,238,238,0.35);
 			}
 			#tiskova_podlozka .head {
 				position: absolute;
-				border: 2px solid rgba(245,124,0,0.85);
-				background: rgba(245,124,0,0.10);
+				border: 2px solid rgba(253,105,37,0.85);
+				background: rgba(253,105,37,0.12);
 			}
 			#tiskova_podlozka .nozzle {
 				position: absolute;
@@ -775,8 +802,8 @@ header("Expires: 0");
 				margin-left: -4px;
 				margin-bottom: -4px;
 				border-radius: 50%;
-				background: rgba(245,124,0,0.95);
-				box-shadow: 0 6px 16px rgba(245,124,0,0.35);
+				background: rgba(253,105,37,0.95);
+				box-shadow: 0 6px 16px rgba(253,105,37,0.35);
 			}
 			#tiskova_podlozka .instance {
 				position: absolute;
@@ -785,29 +812,29 @@ header("Expires: 0");
 				width: calc(var(--w) * 1%);
 				height: calc(var(--h) * 1%);
 				border-radius: 0;
-				background: linear-gradient(135deg, rgba(245,124,0,0.95), rgba(255,152,0,0.92));
+				background: linear-gradient(135deg, rgba(253,105,37,0.95), rgba(224,85,26,0.92));
 				color: #fff;
 				display: grid;
 				place-items: center;
 				font-weight: 700;
 				font-size: 12px;
-				box-shadow: 0 8px 20px rgba(245,124,0,0.22);
+				box-shadow: 0 8px 20px rgba(0,0,0,0.30);
 				user-select: none;
 				z-index: 2;
 			}
 			#tiskova_podlozka .instance:hover {
-				outline: 3px solid rgba(245,124,0,0.35);
+				outline: 3px solid rgba(253,105,37,0.45);
 				outline-offset: 2px;
 			}
 			#tiskova_podlozka .instance.selected {
-				outline: 3px solid rgba(245,124,0,0.60);
+				outline: 3px solid rgba(253,105,37,0.70);
 				outline-offset: 1px;
 			}
 
 			.modal {
 				position: fixed;
 				inset: 0;
-				background: rgba(15, 23, 42, 0.55);
+				background: rgba(0, 0, 0, 0.65);
 				display: grid;
 				place-items: center;
 				padding: 16px;
@@ -816,9 +843,9 @@ header("Expires: 0");
 			.modal[hidden] { display: none !important; }
 			.modal .panel {
 				width: min(92vw, 900px);
-				background: #fff;
+				background: var(--bg-panel);
 				border-radius: var(--radius);
-				border: 1px solid var(--border);
+				border: 1px solid var(--border-color);
 				box-shadow: var(--shadow);
 				padding: 14px;
 			}
@@ -837,7 +864,7 @@ header("Expires: 0");
 			/* Mobile: po výpočtu schovej sekundární sekce (celá sekce včetně nadpisu) */
 			.mobile-section-toggle { display: none; }
 			@media (max-width: 720px) {
-				.mobile-section-toggle { display: inline-flex; width: 100%; justify-content: center; margin: 10px 0; }
+				.mobile-section-toggle { display: inline-flex; width: auto; justify-content: flex-start; margin: 10px 0; }
 				.mobile-section { display: block; }
 				.mobile-hidden { display: none !important; }
 			}
@@ -846,11 +873,11 @@ header("Expires: 0");
 				width: 100%;
 				min-height: 120px;
 				border-radius: 12px;
-				border: 1px solid var(--border);
+				border: 1px solid var(--border-input);
 				padding: 10px 12px;
 				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 				font-size: 12px;
-				color: #0b1220;
+				color: var(--text-main);
 			}
     </style>
   </head>
