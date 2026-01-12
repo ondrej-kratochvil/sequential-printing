@@ -396,6 +396,7 @@ class SequentialPrintCalculator
                 // mezera v ose X závisí na směru tisku + profilu hlavy pro výšku objektu
                 $XMezeraMeziInstancemi = ($this->printer['smer_X'] === 'zleva_doprava' ? $head['Xl'] : $head['Xr']);
 
+                $zacalNovouRadu = false;
                 // X
                 if ($this->printer['smer_X'] === 'zleva_doprava') {
                     $presahuje = (($ox + $this->posunX1) > $this->printer['x']);
@@ -406,6 +407,7 @@ class SequentialPrintCalculator
                         $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr'])
                             ? ($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y'])
                             : ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr']));
+                        $zacalNovouRadu = true;
                     }
                     $ix = ($ox / 2.0) + $this->posunX1;
                 } else {
@@ -417,6 +419,7 @@ class SequentialPrintCalculator
                         $this->posunY1 = (($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y']) > ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr'])
                             ? ($this->poziceHranyNejvzdalenejsihoObjektu - $this->printer['vodici_tyce_Y'])
                             : ($this->poziceHranyPrvnihoObjektuVRade + $head['Yr']));
+                        $zacalNovouRadu = true;
 
                         // TODO sjednotit / zpřesnit kolizní logiku – převzato z původního skriptu (omezujeme pouze pokud existuje 2. objekt v předchozí řadě)
                         if (isset($this->pos1[$p1][($y1 - 1)][2])) {
@@ -428,6 +431,17 @@ class SequentialPrintCalculator
                         }
                     }
                     $ix = $this->printer['x'] - ($ox / 2.0) - $this->posunX1;
+                }
+
+                // Pokud jsme začali novou řadu, zkontroluj kolizi hlavy s objekty v předchozí řadě a případně řadu posuň dál.
+                if ($zacalNovouRadu && isset($this->pos1[$p1][($y1 - 1)]) && is_array($this->pos1[$p1][($y1 - 1)])) {
+                    $this->posunY1 = max($this->posunY1, $this->minPosunYForHeadClearance(
+                        $this->pos1[$p1][($y1 - 1)],
+                        $ix,
+                        $ox,
+                        $oy,
+                        $head
+                    ));
                 }
 
                 // Střídání stran: když je v řadě jen 1 objekt, sudé řady začnu z opačné strany.
@@ -597,6 +611,59 @@ class SequentialPrintCalculator
         if ($v === null) return 0.0;
         if (is_string($v)) $v = str_replace(',', '.', $v);
         return (float)$v;
+    }
+
+    /**
+     * Spočítá minimální posun řady v ose Y (posunY1) tak, aby obdélník hlavy (v nejvíc kolizním rohu)
+     * nezasahoval do žádného objektu v předchozí řadě.
+     *
+     * Pozn.: toto je cílená oprava bugů odhalených vizualizací; dále se dá zpřesnit (např. kontrola více objektů v řadě).
+     *
+     * @param array $prevRow pole instancí z předchozí řady (pos1[p][row])
+     * @param float $ix center X aktuální instance
+     * @param float $ox šířka aktuální instance
+     * @param float $oy hloubka aktuální instance
+     * @param array $head profil hlavy (Xl/Xr/Yl/Yr)
+     * @return float minimální posunY1
+     */
+    private function minPosunYForHeadClearance(array $prevRow, float $ix, float $ox, float $oy, array $head): float
+    {
+        $smerX = $this->printer['smer_X'];
+        $smerY = $this->printer['smer_Y'];
+        $bedY = (float)$this->printer['y'];
+
+        // Nozzle X je "kolizní" hrana v ose X.
+        $leftX = $ix - ($ox / 2.0);
+        $rightX = $ix + ($ox / 2.0);
+        $nozzleX = ($smerX === 'zleva_doprava') ? $leftX : $rightX;
+
+        $headXmin = $nozzleX - (float)$head['Xl'];
+        $headXmax = $nozzleX + (float)$head['Xr'];
+
+        $minPosunY = $this->posunY1;
+
+        foreach ($prevRow as $prev) {
+            $prevLeft = $prev['X'] - ($prev['x'] / 2.0);
+            $prevRight = $prev['X'] + ($prev['x'] / 2.0);
+            $xOverlap = ($headXmax > $prevLeft) && ($headXmin < $prevRight);
+            if (!$xOverlap) continue;
+
+            $prevFront = $prev['Y'] - ($prev['y'] / 2.0);
+            $prevBack = $prev['Y'] + ($prev['y'] / 2.0);
+
+            if ($smerY === 'zepredu_dozadu') {
+                // Nozzle na přední hraně nové řady => posunY1 je přímo yFrontNew.
+                $required = $prevBack + (float)$head['Yl'];
+                if ($required > $minPosunY) $minPosunY = $required;
+            } else {
+                // Nozzle na zadní hraně => nozzleY = bedY - posunY1.
+                // Chceme, aby hlava (dozadu) nezasáhla do předchozí řady (za námi): nozzleY + Yr <= prevFront
+                $requiredPosun = $bedY - ($prevFront - (float)$head['Yr']);
+                if ($requiredPosun > $minPosunY) $minPosunY = $requiredPosun;
+            }
+        }
+
+        return $minPosunY;
     }
 
     /**

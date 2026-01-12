@@ -511,6 +511,11 @@ header("Expires: 0");
 					URL.revokeObjectURL(url);
 				});
 
+				// Header klik = návrat na homepage bez GET parametrů
+				$('#app_header').on('click', function () {
+					window.location.href = window.location.pathname;
+				});
+
 				// Mobil: detaily bez hover + „tisková hlava“
 				let headEnabled = false;
 				let selectedIdx = null;
@@ -665,19 +670,24 @@ header("Expires: 0");
 						const el = document.querySelector(sel);
 						if (el) el.classList.add('mobile-hidden');
 					});
+					document.querySelectorAll('.mobile-section-toggle').forEach(btn => {
+						const label = btn.getAttribute('data-label') || 'sekci';
+						btn.textContent = 'Zobrazit ' + label;
+					});
 				}
 				applyMobileCollapse();
 				$(document).on('click', '.mobile-section-toggle', function(){
 					const target = this.getAttribute('data-target');
 					const el = target ? document.querySelector(target) : null;
 					if (!el) return;
+					const label = this.getAttribute('data-label') || 'sekci';
 					const isHidden = el.classList.contains('mobile-hidden');
 					if (isHidden) {
 						el.classList.remove('mobile-hidden');
-						this.textContent = 'Skrýt sekci';
+						this.textContent = 'Skrýt ' + label;
 					} else {
 						el.classList.add('mobile-hidden');
-						this.textContent = 'Zobrazit sekci';
+						this.textContent = 'Zobrazit ' + label;
 					}
 				});
 			});
@@ -736,6 +746,7 @@ header("Expires: 0");
 				border: 1px solid var(--border-color);
 				border-radius: var(--radius);
 				padding: 12px 14px;
+				cursor: pointer;
 			}
 			.header h1 { margin: 0; font-size: 20px; }
 			.header .sub { color: var(--muted); font-size: 13px; }
@@ -881,7 +892,8 @@ header("Expires: 0");
 			@media (max-width: 720px) {
 				.mobile-section-toggle {
 					display: inline-flex;
-					width: auto;
+					width: fit-content;
+					max-width: 100%;
 					justify-content: flex-start;
 					justify-self: start;
 					align-self: start;
@@ -905,12 +917,12 @@ header("Expires: 0");
   </head>
   <body>
 		<div class="container">
-			<div class="header">
+			<div id="app_header" class="header" title="Zpět na úvod (bez parametrů)">
 				<h1>Sekvenční tisk</h1>
 				<div class="sub">Výpočet rozložení instancí pro sekvenční tisk</div>
 			</div>
 
-		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form">Zobrazit formulář</button>
+		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form" data-label="formulář">Zobrazit formulář</button>
 		<div id="section_form" class="mobile-section">
 		<h2>Objekty</h2>
 
@@ -1104,7 +1116,7 @@ if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 if (!empty($pos)) {
 ?>
 		<div class="layout" style="margin-top: 14px;">
-			<button id="toggle_section_positions" class="ghost small mobile-section-toggle" type="button" data-target="#section_positions">Zobrazit pozice instancí</button>
+			<button id="toggle_section_positions" class="ghost small mobile-section-toggle" type="button" data-target="#section_positions" data-label="pozice instancí">Zobrazit pozice instancí</button>
 			<div id="section_positions" class="card mobile-section">
 				<h2>Pozice instancí</h2>
 			<div class="table-wrap">
@@ -1199,7 +1211,7 @@ if (!empty($pos)) {
 				<div id="instance_details" style="margin-top: 10px; color: var(--muted); font-size: 13px; white-space: pre-wrap;"></div>
 			</div>
 
-			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json">Zobrazit JSON</button>
+			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json" data-label="JSON">Zobrazit JSON</button>
 			<div id="section_json" class="card mobile-section">
 				<h2>JSON</h2>
 				<div class="toolbar" style="margin: 0 0 8px;">
