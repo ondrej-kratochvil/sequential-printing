@@ -299,10 +299,11 @@ class SequentialPrintCalculator
             $y = $this->toFloat(isset($objekt['y']) ? $objekt['y'] : null);
             $z = $this->toFloat(isset($objekt['z']) ? $objekt['z'] : null);
 
-            // +0.01 kvůli možnému zaokrouhlení dolů v PrusaSliceru (původní logika)
-            $x += 0.01;
-            $y += 0.01;
-            $z += 0.01;
+            // Normalizace: max 2 desetinná místa.
+            // (Bez umělého navyšování typu +0.01 – to se uživateli plete ve formuláři.)
+            $x = round($x, 2);
+            $y = round($y, 2);
+            $z = round($z, 2);
 
             // clamp valid
             if ($x <= 0 || $y <= 0 || $z <= 0) continue;

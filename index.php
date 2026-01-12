@@ -6,6 +6,16 @@ require_once __DIR__ . "/src/SequentialPrintCalculator.php";
 
 /* Funkce */
 
+function normalize_input_2dp($v) {
+	if ($v === null) return $v;
+	if (is_string($v)) $v = str_replace(",", ".", $v);
+	if (!is_numeric($v)) return $v;
+	$n = round((float)$v, 2);
+	$s = number_format($n, 2, ".", "");
+	$s = rtrim(rtrim($s, "0"), ".");
+	return $s;
+}
+
 function is_decimal ($value) {
   return (is_numeric($value) and floor($value) != $value);
 }
@@ -110,6 +120,10 @@ if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objek
 		foreach ($objekt as $key1 => $hodnota) {
 			if (is_string($hodnota)) $objekty[$key][$key1] = str_replace(",", ".", $hodnota);
 		}
+		// Normalizace rozměrů na max 2 desetinná místa (bez přidávání 0.01).
+		if (isset($objekty[$key]["x"])) $objekty[$key]["x"] = normalize_input_2dp($objekty[$key]["x"]);
+		if (isset($objekty[$key]["y"])) $objekty[$key]["y"] = normalize_input_2dp($objekty[$key]["y"]);
+		if (isset($objekty[$key]["z"])) $objekty[$key]["z"] = normalize_input_2dp($objekty[$key]["z"]);
 	}
 }
 
@@ -122,6 +136,8 @@ $text_nad_tabulkou = "";
 $datova_veta_json = "[]";
 
 if (!empty($objekty)) {
+	$objekty_input = $objekty; // zachovat pro formulář (aby se hodnoty po odeslání neměnily)
+
 	$calculator = new SequentialPrintCalculator(
 		[
 			"x" => $tiskova_plocha["x"],
@@ -144,7 +160,13 @@ if (!empty($objekty)) {
 
 	$vysledek = $calculator->calculate($objekty);
 
-	$objekty = $vysledek["objekty"];
+	// Do UI vrátím původní rozměry, ale doplním instances[r] z výpočtu.
+	$objekty_vysledek = $vysledek["objekty"];
+	$objekty = $objekty_input;
+	foreach ($objekty as $id => $o) {
+		if (!isset($objekty[$id]["instances"])) $objekty[$id]["instances"] = [];
+		if (isset($objekty_vysledek[$id]["instances"]["r"])) $objekty[$id]["instances"]["r"] = $objekty_vysledek[$id]["instances"]["r"];
+	}
 	$objekty_serazene = $vysledek["objekty_serazene"];
 	$pos = $vysledek["pos"];
 	$datova_veta_pole = $vysledek["datova_veta_pole"];
@@ -385,6 +407,26 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				function openModal() { $("#io_modal").removeAttr("hidden"); }
 				function closeModal() { $("#io_modal").attr("hidden","hidden"); }
 
+				function roundTo2(v) {
+					if (v === null || v === undefined) return v;
+					const s = String(v).replace(',', '.').trim();
+					if (s === '') return '';
+					const n = Number(s);
+					if (!Number.isFinite(n)) return s;
+					// Nechci vnucovat trailing nuly.
+					return (Math.round(n * 100) / 100).toString();
+				}
+
+				// Omezit rozměry na 2 desetinná místa (při opuštění polí + před submit)
+				$(document).on('blur', "input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']", function () {
+					$(this).val(roundTo2($(this).val()));
+				});
+				$("form").on('submit', function () {
+					$(this).find("input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']").each(function(){
+						$(this).val(roundTo2($(this).val()));
+					});
+				});
+
 				$('#export_input').on('click', function () {
 					const st = get_form_state();
 					$("#io_title").text("Export vstupu (JSON)");
@@ -514,7 +556,7 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 				bottom: calc(var(--y) * 1%);
 				width: calc(var(--w) * 1%);
 				height: calc(var(--h) * 1%);
-				border-radius: 10px;
+				border-radius: 0;
 				background: linear-gradient(135deg, rgba(37,99,235,0.95), rgba(14,165,233,0.9));
 				color: #fff;
 				display: grid;
@@ -809,13 +851,13 @@ if (!empty($pos)) {
 		<div class="bed-wrap">
 			<div class="card">
 				<h2>Vizualizace</h2>
-				<div style="color: var(--muted); font-size: 13px; margin: 0 0 10px;">
-					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Hover pro detaily
-				</div>
 				<?php
 					$vizX = (isset($vysledek) && isset($vysledek["printer"]["x"]) ? (float)$vysledek["printer"]["x"] : (float)$tiskova_plocha["x"] - (float)$posun_zprava);
 					$vizY = (isset($vysledek) && isset($vysledek["printer"]["y"]) ? (float)$vysledek["printer"]["y"] : (float)$tiskova_plocha["y"]);
 				?>
+				<div style="color: var(--muted); font-size: 13px; margin: 0 0 10px;">
+					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Hover pro detaily
+				</div>
 				<div id="tiskova_podlozka" style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>;">
 <?php
 	foreach ($pos as $p => $podlozka) {
