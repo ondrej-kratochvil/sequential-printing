@@ -888,7 +888,7 @@ header("Expires: 0");
 			#tiskova_podlozka .instance small { opacity: 0.9; font-weight: 600; }
 
 			/* Mobile: po výpočtu schovej sekundární sekce (celá sekce včetně nadpisu) */
-			.mobile-section-toggle { display: none; }
+			.mobile-section-toggle { display: none; width: fit-content; }
 			@media (max-width: 720px) {
 				.mobile-section-toggle {
 					display: inline-flex;
@@ -897,6 +897,7 @@ header("Expires: 0");
 					justify-content: flex-start;
 					justify-self: start;
 					align-self: start;
+					place-self: start;
 					margin: 10px 0;
 				}
 				.mobile-section { display: block; }

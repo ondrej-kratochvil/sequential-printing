@@ -433,15 +433,25 @@ class SequentialPrintCalculator
                     $ix = $this->printer['x'] - ($ox / 2.0) - $this->posunX1;
                 }
 
-                // Pokud jsme začali novou řadu, zkontroluj kolizi hlavy s objekty v předchozí řadě a případně řadu posuň dál.
-                if ($zacalNovouRadu && isset($this->pos1[$p1][($y1 - 1)]) && is_array($this->pos1[$p1][($y1 - 1)])) {
-                    $this->posunY1 = max($this->posunY1, $this->minPosunYForHeadClearance(
+                // Kolize hlavy s předchozí řadou může nastat i u 2. a dalších objektů v řadě:
+                // pro aktuální X dopočti minimální posun Y tak, aby obdélník hlavy nezasahoval do předchozí řady.
+                if ($y1 > 1 && isset($this->pos1[$p1][($y1 - 1)]) && is_array($this->pos1[$p1][($y1 - 1)])) {
+                    $requiredPosunY = $this->minPosunYForHeadClearance(
                         $this->pos1[$p1][($y1 - 1)],
                         $ix,
                         $ox,
                         $oy,
                         $head
-                    ));
+                    );
+                    if ($requiredPosunY > $this->posunY1) {
+                        $delta = $requiredPosunY - $this->posunY1;
+                        $this->posunY1 = $requiredPosunY;
+                        // posuň už umístěné instance v aktuální řadě, aby zůstaly konzistentní
+                        $this->shiftCurrentRowY($p1, $y1, $delta);
+                        // posuň i evidované hrany řady
+                        $this->poziceHranyPrvnihoObjektuVRade += $delta;
+                        $this->poziceHranyNejvzdalenejsihoObjektu += $delta;
+                    }
                 }
 
                 // Střídání stran: když je v řadě jen 1 objekt, sudé řady začnu z opačné strany.
@@ -635,6 +645,7 @@ class SequentialPrintCalculator
         // Nozzle X je "kolizní" hrana v ose X.
         $leftX = $ix - ($ox / 2.0);
         $rightX = $ix + ($ox / 2.0);
+        // Upřesnění: při tisku "zprava" je kolizní strana vpravo.
         $nozzleX = ($smerX === 'zleva_doprava') ? $leftX : $rightX;
 
         $headXmin = $nozzleX - (float)$head['Xl'];
@@ -664,6 +675,15 @@ class SequentialPrintCalculator
         }
 
         return $minPosunY;
+    }
+
+    private function shiftCurrentRowY(int $p1, int $y1, float $delta): void
+    {
+        if ($delta == 0.0) return;
+        if (!isset($this->pos1[$p1][$y1]) || !is_array($this->pos1[$p1][$y1])) return;
+        foreach ($this->pos1[$p1][$y1] as $xIdx => $inst) {
+            $this->pos1[$p1][$y1][$xIdx]['Y'] = $inst['Y'] + $delta;
+        }
     }
 
     /**
