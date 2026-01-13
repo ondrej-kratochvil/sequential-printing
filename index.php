@@ -976,7 +976,7 @@ if (!empty($pocet_instanci_objektu)) {
 						množství filamentu - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkového množství
 						doba tisku - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkové doby
 			    -->
-					<label for="rozprostrit_instance_v_ose_x">Rozprostřít instance v ose X <span>(rovnoměrně)</span>
+					<label for="rozprostrit_instance_v_ose_x">
 						<input id="rozprostrit_instance_v_ose_x" type="checkbox" name="rozprostrit_instance_v_ose_x" value="1" <?php if($rozprostrit_instance_v_ose_x) {?>checked="checked" <?php }?>/>
 						<span class="hint">Rozprostřít instance v ose X (rovnoměrně)</span>
 					</label>
