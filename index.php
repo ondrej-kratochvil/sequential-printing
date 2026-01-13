@@ -753,7 +753,6 @@ header("Expires: 0");
 
 			h2 { margin: 18px 0 10px; font-size: 16px; }
 			.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
-			.card.subtle { background: var(--bg-active); border-color: var(--border-color); }
 			.card-title { margin: 0; font-size: 16px; }
 
 			.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
@@ -787,10 +786,17 @@ header("Expires: 0");
 			tr:last-child td { border-bottom: none; }
 
 			#nastaveni { margin-top: 12px; }
+			#nastaveni { max-width: 560px; }
 			#nastaveni .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
-			#nastaveni label { display: inline-flex; gap: 10px; align-items: center; justify-content: space-between; font-weight: 600; color: var(--text); }
+			#nastaveni label { display: inline-flex; gap: 10px; align-items: center; justify-content: flex-start; font-weight: 600; color: var(--text); }
+			#nastaveni label input[type=checkbox] { margin-left: 6px; }
 			#nastaveni label span { color: var(--muted); font-weight: 500; }
 			@media (max-width: 720px) { #nastaveni .grid { grid-template-columns: 1fr; } }
+
+			.remaining-grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 14px; align-items: start; }
+			@media (max-width: 980px) { .remaining-grid { grid-template-columns: 1fr; } }
+			table.compact { width: auto; }
+			table.compact th, table.compact td { white-space: nowrap; }
 
 			.layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; align-items: start; }
 			@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
@@ -1067,12 +1073,13 @@ if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 }
 if (!empty($zbyva_v_ose_X)) {
 ?>
-			<div class="card subtle" style="margin-top: 12px;">
+			<div class="remaining-grid">
+			<div class="card" style="margin-top: 12px;">
 			<div class="toolbar" style="margin: 0 0 8px;">
 				<h2 class="card-title">Zbývá místa v ose X</h2>
 			</div>
 			<div class="table-wrap">
-			<table>
+			<table class="compact">
 				<tr>
 					<th>Řada</th>
 					<th>Zbývá</th>
@@ -1098,12 +1105,12 @@ if (!empty($zbyva_v_ose_X)) {
 }
 if ($zbyva_v_ose_Y) {
 ?>
-			<div class="card subtle" style="margin-top: 12px;">
+			<div class="card" style="margin-top: 12px;">
 			<div class="toolbar" style="margin: 0 0 8px;">
 				<h2 class="card-title">Zbývá místa v ose Y</h2>
 			</div>
 			<div class="table-wrap">
-			<table>
+			<table class="compact">
 				<tr>
 					<th>Zbývá</th>
 					<th>Počet řad</th>
@@ -1124,6 +1131,7 @@ if ($zbyva_v_ose_Y) {
 }
 if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 ?>
+			</div>
 		</div>
 <?php
 }
