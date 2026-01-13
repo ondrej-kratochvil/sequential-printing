@@ -510,7 +510,14 @@ class SequentialPrintCalculator
         $this->pos2 = $this->pos1;
 
         if ($this->zbyvaVOseXMaximalne || $this->zbyvaVOseY) {
-            $pripocitamVOseY = ($this->zbyvaVOseY && $this->pocetRad1 > 1) ? ($this->zbyvaVOseY / ($this->pocetRad1 - 1)) : 0.0;
+            // Rozprostření v ose Y:
+            // - dříve se "doplňoval" jen rozestup mezi řadami (řada 1 zůstala na místě)
+            // - požadavek: posunout rovnoměrně všechny řady (včetně 1.), tj. centrovat v Y
+            //   => použijeme zbylé místo jako (pocetRad1 + 1) mezer (před první řadou, mezi řadami, za poslední řadou)
+            $gapVOseY = ($this->options['rozprostrit_instance_v_ose_y'] && $this->zbyvaVOseY > 0 && $this->pocetRad1 > 0)
+                ? ($this->zbyvaVOseY / ($this->pocetRad1 + 1))
+                : 0.0;
+
             foreach ($this->pos2[1] as $yIdx => $rada) {
                 $pocetInstanciVRade = count($rada);
                 $sudaRada = ($yIdx % 2 === 0);
@@ -524,9 +531,11 @@ class SequentialPrintCalculator
                         if ($this->printer['smer_X'] === 'zleva_doprava') $this->pos2[1][$yIdx][$xIdx]['X'] += $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
                         else $this->pos2[1][$yIdx][$xIdx]['X'] -= $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
                     }
-                    if ($this->options['rozprostrit_instance_v_ose_y'] && $yIdx > 1) {
-                        if ($this->printer['smer_Y'] === 'zepredu_dozadu') $this->pos2[1][$yIdx][$xIdx]['Y'] += $pripocitamVOseY * ($yIdx - 1);
-                        else $this->pos2[1][$yIdx][$xIdx]['Y'] -= $pripocitamVOseY * ($yIdx - 1);
+                    if ($gapVOseY > 0.0) {
+                        // posuň i 1. řadu (yIdx=1 => +gap)
+                        $shift = $gapVOseY * $yIdx;
+                        if ($this->printer['smer_Y'] === 'zepredu_dozadu') $this->pos2[1][$yIdx][$xIdx]['Y'] += $shift;
+                        else $this->pos2[1][$yIdx][$xIdx]['Y'] -= $shift;
                     }
                     $this->datovaVetaPole[] = [
                         $this->pos2[1][$yIdx][$xIdx]['i'],

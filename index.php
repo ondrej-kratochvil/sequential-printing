@@ -753,6 +753,8 @@ header("Expires: 0");
 
 			h2 { margin: 18px 0 10px; font-size: 16px; }
 			.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
+			.card.subtle { background: var(--bg-active); border-color: var(--border-color); }
+			.card-title { margin: 0; font-size: 16px; }
 
 			.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
 			button, input[type=number], textarea {
@@ -781,7 +783,7 @@ header("Expires: 0");
 			th, td { padding: 10px 10px; border-bottom: 1px solid var(--border-color); vertical-align: top; }
 			th { text-align: left; color: var(--muted); font-weight: 700; font-size: 12px; }
 			td { text-align: right; }
-			td:first-child, th:first-child { text-align: left; }
+			/* Necháme výchozí: th vlevo, td vpravo (i 1. sloupec bývá často číslo). */
 			tr:last-child td { border-bottom: none; }
 
 			#nastaveni { margin-top: 12px; }
@@ -925,9 +927,10 @@ header("Expires: 0");
 
 		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form" data-label="formulář">Zobrazit formulář</button>
 		<div id="section_form" class="mobile-section">
-		<h2>Objekty</h2>
-
 		<form method="get" action="./index.php" class="card">
+			<div class="toolbar" style="margin: 0 0 8px;">
+				<h2 style="margin:0; flex:1;">Objekty</h2>
+			</div>
 			<div class="table-wrap">
 			<table id="objekty">
 				<tr>
@@ -1055,17 +1058,20 @@ if ($text_nad_tabulkou) {
 }
 if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 ?>
-		<p>
-		  <button type="button" onclick="javascript:$('#zbyvajici_misto').toggle(100);">Zobrazit/skrýt zbývající místo</button>
-		</p>
+		<div class="toolbar" style="margin-top: 14px;">
+		  <button class="ghost" type="button" onclick="javascript:$('#zbyvajici_misto').toggle(120);">Zobrazit/skrýt zbývající místo</button>
+		</div>
 
-		<div id="zbyvajici_misto">
+		<div id="zbyvajici_misto" style="margin-top: 10px;">
 <?php
 }
 if (!empty($zbyva_v_ose_X)) {
 ?>
-			<h2>Zbývá místa v ose X</h2>
-
+			<div class="card subtle" style="margin-top: 12px;">
+			<div class="toolbar" style="margin: 0 0 8px;">
+				<h2 class="card-title">Zbývá místa v ose X</h2>
+			</div>
+			<div class="table-wrap">
 			<table>
 				<tr>
 					<th>Řada</th>
@@ -1086,12 +1092,17 @@ if (!empty($zbyva_v_ose_X)) {
 	}
 ?>
     	</table>
+			</div>
+			</div>
 <?php
 }
 if ($zbyva_v_ose_Y) {
 ?>
-			<h2>Zbývá místa v ose Y</h2>
-
+			<div class="card subtle" style="margin-top: 12px;">
+			<div class="toolbar" style="margin: 0 0 8px;">
+				<h2 class="card-title">Zbývá místa v ose Y</h2>
+			</div>
+			<div class="table-wrap">
 			<table>
 				<tr>
 					<th>Zbývá</th>
@@ -1107,6 +1118,8 @@ if ($zbyva_v_ose_Y) {
 		echo '</tr>';
 ?>
     	</table>
+			</div>
+			</div>
 <?php
 }
 if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
@@ -1119,7 +1132,9 @@ if (!empty($pos)) {
 		<div class="layout" style="margin-top: 14px;">
 			<button id="toggle_section_positions" class="ghost small mobile-section-toggle" type="button" data-target="#section_positions" data-label="pozice instancí">Zobrazit pozice instancí</button>
 			<div id="section_positions" class="card mobile-section">
-				<h2>Pozice instancí</h2>
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 class="card-title">Pozice instancí</h2>
+				</div>
 			<div class="table-wrap">
 			<table>
 				<tr>
@@ -1214,8 +1229,8 @@ if (!empty($pos)) {
 
 			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json" data-label="JSON">Zobrazit JSON</button>
 			<div id="section_json" class="card mobile-section">
-				<h2>JSON</h2>
 				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 class="card-title" style="flex:1;">JSON</h2>
 					<button id="copy_json" class="small" type="button">Kopírovat JSON</button>
 					<button id="download_json" class="small" type="button">Stáhnout JSON</button>
 				</div>
