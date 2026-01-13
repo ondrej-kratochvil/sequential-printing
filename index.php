@@ -786,12 +786,16 @@ header("Expires: 0");
 			tr:last-child td { border-bottom: none; }
 
 			#nastaveni { margin-top: 12px; }
-			#nastaveni { max-width: 560px; }
-			#nastaveni .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
-			#nastaveni label { display: inline-flex; gap: 10px; align-items: center; justify-content: flex-start; font-weight: 600; color: var(--text); }
-			#nastaveni label input[type=checkbox] { margin-left: 6px; }
-			#nastaveni label span { color: var(--muted); font-weight: 500; }
-			@media (max-width: 720px) { #nastaveni .grid { grid-template-columns: 1fr; } }
+			#nastaveni { margin-top: 12px; max-width: 560px; }
+			#nastaveni .grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+			#nastaveni label {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				font-weight: 600;
+				color: var(--text);
+			}
+			#nastaveni label .hint { color: var(--muted); font-weight: 600; }
 
 			.remaining-grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 14px; align-items: start; }
 			@media (max-width: 980px) { .remaining-grid { grid-template-columns: 1fr; } }
@@ -974,18 +978,23 @@ if (!empty($pocet_instanci_objektu)) {
 			    -->
 					<label for="rozprostrit_instance_v_ose_x">Rozprostřít instance v ose X <span>(rovnoměrně)</span>
 						<input id="rozprostrit_instance_v_ose_x" type="checkbox" name="rozprostrit_instance_v_ose_x" value="1" <?php if($rozprostrit_instance_v_ose_x) {?>checked="checked" <?php }?>/>
+						<span class="hint">Rozprostřít instance v ose X (rovnoměrně)</span>
 					</label>
-					<label for="rozprostrit_instance_v_ose_y">Rozprostřít instance v ose Y <span>(rovnoměrně)</span>
+					<label for="rozprostrit_instance_v_ose_y">
 						<input id="rozprostrit_instance_v_ose_y" type="checkbox" name="rozprostrit_instance_v_ose_y" value="1" <?php if($rozprostrit_instance_v_ose_y) {?>checked="checked" <?php }?>/>
+						<span class="hint">Rozprostřít instance v ose Y (rovnoměrně)</span>
 					</label>
-					<label for="umistit_na_stred_v_ose_x">Umístit na střed v ose X
+					<label for="umistit_na_stred_v_ose_x">
 						<input id="umistit_na_stred_v_ose_x" type="checkbox" name="umistit_na_stred_v_ose_x" value="1" <?php if($umistit_na_stred_v_ose_x) {?>checked="checked" <?php }?>/>
+						<span class="hint">Umístit na střed v ose X</span>
 					</label>
-					<label for="umistit_na_stred_v_ose_y">Umístit na střed v ose Y
+					<label for="umistit_na_stred_v_ose_y">
 						<input id="umistit_na_stred_v_ose_y" type="checkbox" name="umistit_na_stred_v_ose_y" value="1" <?php if($umistit_na_stred_v_ose_y) {?>checked="checked" <?php }?>/>
+						<span class="hint">Umístit na střed v ose Y</span>
 					</label>
-					<label for="rozprostrit_instance_po_cele_podlozce">Rozprostřít po celé podložce <span>(hledání řad)</span>
+					<label for="rozprostrit_instance_po_cele_podlozce">
 						<input id="rozprostrit_instance_po_cele_podlozce" type="checkbox" name="rozprostrit_instance_po_cele_podlozce" value="1" <?php if($rozprostrit_instance_po_cele_podlozce) {?>checked="checked" <?php }?>/>
+						<span class="hint">Rozprostřít po celé podložce (hledání řad)</span>
 					</label>
 				</div>
 			</div>

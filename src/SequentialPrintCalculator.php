@@ -511,13 +511,14 @@ class SequentialPrintCalculator
 
         if ($this->zbyvaVOseXMaximalne || $this->zbyvaVOseY) {
             // Rozprostření v ose Y (požadavek):
-            // - první řada zůstává "zcela vpředu"
-            // - zbylé místo se rovnoměrně rozdělí mezi další řady tak, aby poslední skončila "zcela vzadu"
-            // => postupný posun řad: shift(yIdx) = (zbyvaVOseY / (pocetRad1 - 1)) * (yIdx - 1)
-            $stepVOseY = ($this->options['rozprostrit_instance_v_ose_y'] && $this->zbyvaVOseY > 0 && $this->pocetRad1 > 1)
-                ? ($this->zbyvaVOseY / ($this->pocetRad1 - 1))
+            // - 1. instance zůstane na startu směru tisku (vpředu / vzadu)
+            // - zbývající místo (zbyvaVOseY) se rovnoměrně rozdělí mezi další instance v pořadí tisku
+            // => shift(seq) = (zbyvaVOseY / (N - 1)) * (seq - 1), pro seq > 1
+            $stepVOseY = ($this->options['rozprostrit_instance_v_ose_y'] && $this->zbyvaVOseY > 0 && $this->pocetInstanci1 > 1)
+                ? ($this->zbyvaVOseY / ($this->pocetInstanci1 - 1))
                 : 0.0;
 
+            $seq = 0;
             foreach ($this->pos2[1] as $yIdx => $rada) {
                 $pocetInstanciVRade = count($rada);
                 $sudaRada = ($yIdx % 2 === 0);
@@ -527,12 +528,13 @@ class SequentialPrintCalculator
                     : 0.0;
 
                 foreach ($rada as $xIdx => $_objekt1) {
+                    $seq++;
                     if ($this->options['rozprostrit_instance_v_ose_x'] && ($xIdx > 1 || $cikCak)) {
                         if ($this->printer['smer_X'] === 'zleva_doprava') $this->pos2[1][$yIdx][$xIdx]['X'] += $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
                         else $this->pos2[1][$yIdx][$xIdx]['X'] -= $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
                     }
-                    if ($stepVOseY > 0.0 && $yIdx > 1) {
-                        $shift = $stepVOseY * ($yIdx - 1);
+                    if ($stepVOseY > 0.0 && $seq > 1) {
+                        $shift = $stepVOseY * ($seq - 1);
                         if ($this->printer['smer_Y'] === 'zepredu_dozadu') $this->pos2[1][$yIdx][$xIdx]['Y'] += $shift;
                         else $this->pos2[1][$yIdx][$xIdx]['Y'] -= $shift;
                     }
