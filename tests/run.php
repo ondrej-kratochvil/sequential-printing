@@ -60,6 +60,12 @@ function assertTrue(bool $cond, string $label): void {
     }
 }
 
+function assertNear(float $expected, float $actual, float $eps, string $label): void {
+    if (abs($expected - $actual) > $eps) {
+        fail("{$label}: očekáváno ~" . $expected . ", ale bylo " . $actual);
+    }
+}
+
 if (PHP_SAPI === 'cli') {
     // 1) Regrese: základní scénář nesmí spadnout a musí vrátit požadovaný počet instancí.
     $res = runScenarioCli([
@@ -105,6 +111,47 @@ if (PHP_SAPI === 'cli') {
     ]);
     assertSame("zleva_doprava", $res["printer"]["smer_X"], "Směr X podle nejvyššího objektu");
     ok("Směr tisku podle nejvyššího objektu funguje.");
+
+    // 4) Regrese: rozprostření v ose Y je po instancích:
+    // ověř posuny jako rozdíl mezi výpočtem s Y=off a Y=on (abychom nepletli přirozené rozestupy).
+    $printer = [
+        "x" => 180, "y" => 180, "z" => 180,
+        "posun_zprava" => 1,
+        "Xr" => 12, "Xl" => 36.5,
+        "Yr" => 15.5, "Yl" => 15.5,
+        "vodici_tyce_Z" => 21,
+        "vodici_tyce_Y" => 17.4,
+    ];
+    $obj = [["x" => 50, "y" => 40, "z" => 100, "instances" => ["d" => 99]]];
+
+    $calcOff = new SequentialPrintCalculator($printer, [
+        "rozprostrit_instance_po_cele_podlozce" => true,
+        "rozprostrit_instance_v_ose_x" => true,
+        "rozprostrit_instance_v_ose_y" => false,
+    ]);
+    $off = $calcOff->calculate($obj);
+
+    $calcOn = new SequentialPrintCalculator($printer, [
+        "rozprostrit_instance_po_cele_podlozce" => true,
+        "rozprostrit_instance_v_ose_x" => true,
+        "rozprostrit_instance_v_ose_y" => true,
+    ]);
+    $on = $calcOn->calculate($obj);
+
+    assertSame(6, $on["pocet_instanci"], "Scénář 50×40×100 má dát 6 instancí");
+    assertSame($off["pocet_instanci"], $on["pocet_instanci"], "Stejný počet instancí pro Y on/off");
+
+    $zbyvaY = (float)$on["zbyva_v_ose_Y"];
+    $step = $zbyvaY / (6 - 1);
+
+    $ysOff = array_map(function ($p) { return (float)$p[2]; }, $off["datova_veta_pole"]);
+    $ysOn = array_map(function ($p) { return (float)$p[2]; }, $on["datova_veta_pole"]);
+
+    // 1. instance se neposouvá; n-tá instance se posune o (n-1)*step
+    assertNear(0.0, $ysOn[0] - $ysOff[0], 0.2, "Y posun instance 1");
+    assertNear($step, $ysOn[1] - $ysOff[1], 0.25, "Y posun instance 2");
+    assertNear($step * 5, $ysOn[5] - $ysOff[5], 0.25, "Y posun instance 6");
+    ok("Rozprostření v ose Y po instancích funguje.");
 
     ok("ALL OK");
     exit(0);
