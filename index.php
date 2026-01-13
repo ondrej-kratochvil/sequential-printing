@@ -271,9 +271,9 @@ header("Expires: 0");
 				$("table#objekty").append(
 					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
 						<td class="cell_id">${id_objektu + 1}</td>
-						<td><input type="number" name="objekty[${id_objektu}][x]" value="${x}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input type="number" name="objekty[${id_objektu}][y]" value="${y}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${x}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${y}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input class="instances" type="number" name="objekty[${id_objektu}][instances][d]" value="${instances}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" required="required" /></td>
 						<td style="text-align:left;">
 							<div style="display:flex; gap:6px; flex-wrap:wrap;">
@@ -283,7 +283,7 @@ header("Expires: 0");
 								<button class="small row_action" type="button" data-action="del" title="Smazat">Smazat</button>
 							</div>
 						</td>
-						${objekty[id_objektu] ? `<td>${vysledny_pocet_instanci}</td>` : ""}
+						<td class="cell_result">${vysledny_pocet_instanci}</td>
 					</tr>`
 				);
 				reindex_rows();
@@ -776,6 +776,9 @@ header("Expires: 0");
 				outline: 2px solid var(--border-focus);
 				outline-offset: 1px;
 			}
+			/* Kompaktní inputy v tabulce objektů */
+			table#objekty input.dim { max-width: 6.5rem; min-width: 5.5rem; }
+			table#objekty input.instances { max-width: 5.5rem; min-width: 4.5rem; }
 
 			.table-wrap { overflow-x: auto; }
 			table { width: 100%; border-collapse: separate; border-spacing: 0; }
@@ -947,14 +950,8 @@ header("Expires: 0");
 					<th rowspan="2">ID<br />objektu</th>
 					<th colspan="3">Rozměry objektu (mm)</th>
 					<th rowspan="2">Požadovaný<br />počet instancí<br />(<?php echo MAXIMALNI_POCET_INSTANCI;?>=max)</th>
-					<th rowspan="2">Smazat<br />řádek</th>
-<?php
-if (!empty($pocet_instanci_objektu)) {
-?>
-					<th rowspan="2">Výsledný<br />počet instancí</th>
-<?php
-}
-?>
+					<th rowspan="2">Akce</th>
+					<th rowspan="2">Vypočtený<br />počet instancí</th>
 				</tr>
 				<tr>
 					<th>x</th>
