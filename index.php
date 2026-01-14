@@ -1,8 +1,20 @@
-﻿<?php
+<?php
 define("MAXIMALNI_POCET_INSTANCI", 99);
 define("MAXIMALNI_POCET_ITERACI", 99);
 
+require_once __DIR__ . "/src/SequentialPrintCalculator.php";
+
 /* Funkce */
+
+function normalize_input_2dp($v) {
+	if ($v === null) return $v;
+	if (is_string($v)) $v = str_replace(",", ".", $v);
+	if (!is_numeric($v)) return $v;
+	$n = round((float)$v, 2);
+	$s = number_format($n, 2, ".", "");
+	$s = rtrim(rtrim($s, "0"), ".");
+	return $s;
+}
 
 function is_decimal ($value) {
   return (is_numeric($value) and floor($value) != $value);
@@ -75,172 +87,17 @@ function array_msort($array, $cols) {
 	return $ret;
 }
 
-function nastav_zbyva_v_ose_Y () {
-	global $zbyva_v_ose_Y, $Y, $pozice_hrany_nejvzdalenejsiho_objektu;
-	$zbyva_v_ose_Y = ($Y - $pozice_hrany_nejvzdalenejsiho_objektu);
-}
+/* Nastavení tiskárny (výchozí – později půjde do DB) */
 
-function vypocitej_pozici_instanci () {
-	global $objekty, $objekty_serazene, $smer_X, $smer_Y, $X, $Y, $Xr, $Yr, $rozprostrit_instance_v_ose_x, $rozprostrit_instance_v_ose_y, $omezeny_pocet_instanci_v_rade, $vodici_tyce_Z, $pos1, $pos2, $zbyva_v_ose_X, $vodici_tyce_Y, $datova_veta_pole, $pocet_instanci_objektu, $Xcount_pole, $posun_x1, $posun_y1, $pocet_instanci1, $pocet_rad1, $pozice_hrany_prvniho_objektu_v_rade, $pozice_hrany_nejvzdalenejsiho_objektu, $zbyva_v_ose_X_maximalne, $zbyva_v_ose_Y, $pocet_podlozek1;
-	$pos1 = $pos2 = $zbyva_v_ose_X = $datova_veta_pole = $pocet_instanci_objektu = $Xcount_pole = [];
-	$posun_x1 = $posun_y1 = $pocet_instanci1 = $pocet_rad1 = $pozice_hrany_prvniho_objektu_v_rade = $pozice_hrany_nejvzdalenejsiho_objektu = $zbyva_v_ose_X_maximalne = $zbyva_v_ose_Y = 0;
-	$pocet_podlozek1 = $p1 = $x1 = $y1 = 1; // TODO předělat v závislosti na ID objektu; přidat možnost umístění na více podložek
-	foreach ($objekty_serazene as $id => $objekt) {
-		$i1 = $i2 = 0;
-		$o1 = $id + 1;
-		/* Uložím si rozměry objektu do proměnných */
-		$ox = $objekt["x"];
-		$oy = $objekt["y"];
-		$oz = $objekt["z"];
-		$pozadovany_pocet_instanci = (isset($objekt["instances"]["d"]) ? ($objekt["instances"]["d"] === "max" ? MAXIMALNI_POCET_INSTANCI : $objekt["instances"]["d"]) : 1);
-		$pocet_instanci_objektu[$o1] = 0;
-		for ($ci = 1; $ci <= $pozadovany_pocet_instanci; $ci++) {
-			$i1 = $i2;// Nastavím dočasné počítadlo instancí podle finálního počítadla instancí
-			$i1++; // Navýším dočasné počítadlo instancí
-			/* Nastavím pozici X */
-			if ($smer_X == "zleva_doprava") { // TODO udělat stejným způsobem (jen opačným směrem) jako v opačném směru (else)
-				$ix = ($ox / 2) + $posun_x1; // Nastavím pozici X
-			}
-			else {
-				if (($X - $ox - $posun_x1) < 0 or ($omezeny_pocet_instanci_v_rade and $x1 > $omezeny_pocet_instanci_v_rade)) { // Pokud by již instance přesahovala podložku v ose X
-					$y1++; // Navýším řadu
-					$x1 = 1; // Nastavím sloupec na počítační hodnotu
-					$posun_x1 = 0; // Vynuluji posun v ose X
-					$posun_y1 = (($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) > ($pozice_hrany_prvniho_objektu_v_rade + $Yr) ? ($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y) : ($pozice_hrany_prvniho_objektu_v_rade + $Yr)); // Nastavím posun nové řady podle toho, co je dál, aby nenarazila hlava do prvního objektu v předchozí řadě, nebo vodící tyče do posledního objektu v předchozí řadě
-					//echo "(pozice_hrany_prvniho_objektu_v_rade + Yr) = ".($pozice_hrany_prvniho_objektu_v_rade + $Yr)."<br />";
-					//echo "(pozice_hrany_nejvzdalenejsiho_objektu - vodici_tyce_Y) = ".($pozice_hrany_nejvzdalenejsiho_objektu - $vodici_tyce_Y)."<br />";
-					$pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade = $pos1[$p1][($y1 - 1)][2]["X"] + ($pos1[$p1][($y1 - 1)][2]["x"] / 2);
-					echo "pozice_hrany_x_druheho_objektu_v_predchozi_rade = ".$pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade."<br />";
-					$pozice_leve_hrany_x_tohoto_objektu = $X - $ox - $posun_x1;
-					echo "pozice_leve_hrany_x_tohoto_objektu = ".$pozice_leve_hrany_x_tohoto_objektu."<br />";
-					if ($pozice_prave_hrany_x_druheho_objektu_v_predchozi_rade < ($pozice_leve_hrany_x_tohoto_objektu - $Xl)) $posun_y1 = ($pozice_hrany_nejvzdalenejsiho_objektu + $Yr); // Pokud by hlava narazila do druhého objektu v předchozí řadě, raději nastavím posun podle posledního objektu // TODO udělat posun Y v cyklu, aby se nastavil podle druhého objektu v předchozí řadě a kontroloval se třetí objekt atd. // TODO rosprostřední v ose X je nutné dělat druhým průchodem funkce, aby se zajistil dostatečný prostor mezi objekty pro Xl, nebo i bez rozprostření udělat další průchod, kdy se Xl použije místo Xr
-					//echo "posun_y1 = ".$posun_y1."<br />";
-				}
-				$ix = $X - ($ox / 2) - $posun_x1; // Nastavím pozici X
-			}
-			//echo 'ix = '.$ix.'<br />';
-			/* Nastavím pozici Y */
-			if ($i1 > 1 and $x1 > 1 and $pos1[$p1][$y1][($x1 - 1)]["z"] > $vodici_tyce_Z and $pos1[$p1][$y1][($x1 - 1)]["y"] > $vodici_tyce_Y) { // Pokud by vodící tyče narazily do předchozího objektu
-				//echo "posun_y1 = ".$posun_y1."<br />";
-				$posun_y1 += ($pos1[$p1][$y1][($x1 - 1)]["y"] - $vodici_tyce_Y); // Nastavím posun v ose Y
-				//echo "posun_y1 = ".$posun_y1."<br />";
-			}
-			if ($smer_Y == "zepredu_dozadu") $iy = ($oy / 2) + $posun_y1;
-			else $iy = $Y - ($oy / 2) - $posun_y1; // TODO máme jen pozici vodících tyčí zepředu - potřebovali bychom pozici zezadu
-			//echo 'iy = ".$iy."<br />';
-			/* Pokud by objekt přesahoval podložku v ose Y, ukončím cyklus */
-			if (($iy + ($oy / 2)) > $Y) {
-				//echo "iy = ".$iy."<br />";
-				nastav_zbyva_v_ose_Y();
-				break(2);
-			}
-			$i2++; // Navýším finální počítadlo instancí
-			$pocet_instanci1++;
-			if ($y1 == 1) $Xcount1 = $pocet_instanci1; // Zajímá mě počet instancí v 1. řadě
-			/* Uložím hodnoty do pole */
-			$pos1[$p1][$y1][$x1] = [
-				"o" => $o1,
-				"i" => $i2,
-				"X" => $ix,
-				"Y" => $iy,
-				"x" => $ox,
-				"y" => $oy,
-				"z" => $oz
-			];
-			if (!isset($Xcount_pole[$y1])) $Xcount_pole[$y1] = 0;
-			$Xcount_pole[$y1]++;
-			if ($x1 == 1) $pocet_rad1++;
-			$posun_x1 += ($ox + $Xr); // Nastavím posun v ose X pro následující instanci
-			if ($smer_X == "zleva_doprava") { // TODO udělat stejným způsobem (jen opačným směrem) jako v opačném směru (else)
-			}
-			else {
-				$zbyva_v_ose_X[$y1] = ($X - ($posun_x1 - $Xr));
-				if ($zbyva_v_ose_X[$y1] > $zbyva_v_ose_X_maximalne) $zbyva_v_ose_X_maximalne = $zbyva_v_ose_X[$y1];
-			}
-			if ($x1 == 1) $pozice_hrany_prvniho_objektu_v_rade = ($iy + ($oy / 2)); // Ukládám si pozici hrany prvního objektu v této řadě, abych ji uplatnil pro posuv následující řady
-			if ($pozice_hrany_nejvzdalenejsiho_objektu < ($iy + ($oy / 2))) $pozice_hrany_nejvzdalenejsiho_objektu = ($iy + ($oy / 2)); // Ukládám si pozici nejvzdálenější hrany v této řadě, abych ji uplatnil pro posuv následující řady
-			nastav_zbyva_v_ose_Y();
-			$pocet_instanci_objektu[$o1]++;
-			$objekty[$id]["instances"]["r"] = $pocet_instanci_objektu[$o1];
-			$x1++; // Navýším počítadlo instancí v ose X
-		}
-	}
-	//print_r($zbyva_v_ose_X);
-	//print_r($zbyva_v_ose_Y);
-	$pos2 = $pos1;
-	if ($zbyva_v_ose_X_maximalne or $zbyva_v_ose_Y) {
-		$pripocitam_v_ose_Y = ($zbyva_v_ose_Y ? ($zbyva_v_ose_Y / ($pocet_rad1 - 1)) : 0);
-		foreach ($pos2[$p1] as $y1 => $rada) {
-			$pocet_instanci_v_rade = count($rada);
-			$suda_rada = ($y1 % 2 == 0);
-			$cik_cak = ($omezeny_pocet_instanci_v_rade and $pocet_instanci_v_rade == 1 and $suda_rada); // dělat i v případě rovnoměrného rozprostření instancí po celé podložce, když je jen jeden objekt v sudé řadě
-			$pripocitam_v_ose_X = ($zbyva_v_ose_X_maximalne ? ($zbyva_v_ose_X[$y1] / ($cik_cak ? 1 : ($pocet_instanci_v_rade - 1))) : 0);
-			foreach ($rada as $x1 => $objekt1) {
-				if ($rozprostrit_instance_v_ose_x and ($x1 > 1 or $cik_cak)) {
-					if ($smer_X == "zleva_doprava") $pos2[$p1][$y1][$x1]["X"] += $pripocitam_v_ose_X * ($cik_cak ? 1 : ($x1 - 1));
-					else $pos2[$p1][$y1][$x1]["X"] -= $pripocitam_v_ose_X * ($cik_cak ? 1 : ($x1 - 1));
-				}
-				if ($rozprostrit_instance_v_ose_y and $y1 > 1) {
-					if ($smer_Y == "zepredu_dozadu") $pos2[$p1][$y1][$x1]["Y"] += $pripocitam_v_ose_Y * ($y1 - 1);
-					else $pos2[$p1][$y1][$x1]["Y"] -= $pripocitam_v_ose_Y * ($y1 - 1);
-				}
-				$datova_veta_pole[] = [$pos2[$p1][$y1][$x1]["i"], round($pos2[$p1][$y1][$x1]["X"], 2), round($pos2[$p1][$y1][$x1]["Y"], 2)];
-			}
-		}
-	}
-}
-
-function prepocitej_s_rozprostrenim_po_cele_tiskove_podlozce ($par_pocet_instanci, $par_pocet_rad) {
-	global $omezeny_pocet_instanci_v_rade;
-	$omezeny_pocet_instanci_v_rade = ceil($par_pocet_instanci / $par_pocet_rad);
-	vypocitej_pozici_instanci();
-}
-
-function prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu ($par_pocet_instanci, $krome_techto_objektu, $nastavit_pomerny_pocet_vyslednych_instanci = false) {
-	global $objekty_serazene, $pomerny_pocet_vyslednych_instanci;
-	foreach ($objekty_serazene as $id => $objekt) {
-		$nastavovany_pocet_pozadovanych_instanci = ($nastavit_pomerny_pocet_vyslednych_instanci ? ($pomerny_pocet_vyslednych_instanci[$id] - $par_pocet_instanci) : $par_pocet_instanci);
-		if (!in_array($id, $krome_techto_objektu)) $objekty_serazene[$id]["instances"]["d"] = ($objekty[$id]["instances"]["d"] < $nastavovany_pocet_pozadovanych_instanci ? $objekty[$id]["instances"]["d"] : $nastavovany_pocet_pozadovanych_instanci);
-	}
-	vypocitej_pozici_instanci();
-}
-
-function vypocitej_prumerny_pocet_instanci () {
-	global $objekty, $pocet_objektu, $celkovy_pocet_pozadovanych_instanci, $celkovy_pocet_vyslednych_instanci, $prumerny_pocet_pozadovanych_instanci, $prumerny_pocet_vyslednych_instanci;
-  $celkovy_pocet_pozadovanych_instanci = $celkovy_pocet_vyslednych_instanci = 0;
-	foreach ($objekty as $id => $objekt) {
-		$celkovy_pocet_pozadovanych_instanci += $objekt["instances"]["d"];
-		$celkovy_pocet_vyslednych_instanci += $objekt["instances"]["r"];
-	}
-	$prumerny_pocet_pozadovanych_instanci = $celkovy_pocet_pozadovanych_instanci / $pocet_objektu;
-	$prumerny_pocet_vyslednych_instanci = $celkovy_pocet_vyslednych_instanci / $pocet_objektu;
-}
-
-function nastav_pomerny_pocet_vyslednych_instanci () {
-	global $objekty, $prumerny_pocet_pozadovanych_instanci, $prumerny_pocet_vyslednych_instanci, $pomerny_pocet_vyslednych_instanci;
-	foreach ($objekty as $id => $objekt) {
-		$pomerny_pocet_vyslednych_instanci[$id] = $objekt["instances"]["d"] / $prumerny_pocet_pozadovanych_instanci * $prumerny_pocet_vyslednych_instanci;
-	}
-}
-
-function nastav_pole_krome_techto_objektu () {
-	global $byla_umistena_alespon_jedna_instance_objektu, $krome_techto_objektu;
-	$krome_techto_objektu = [];
-	foreach ($byla_umistena_alespon_jedna_instance_objektu as $id => $objekt) {
-		$krome_techto_objektu[] = $id;
-	}
-}
-
-/* Nastavení tiskárny */
-
-$tiskova_plocha["x"] = $X = 180;
-$tiskova_plocha["y"] = $Y = 180;
-$tiskova_plocha["z"] = $Z = 180;
+$tiskova_plocha = [
+	"x" => 180,
+	"y" => 180,
+	"z" => 180
+];
 $posun_zprava = 1; // Korekce pro PRUSA MINI, kdy objekt umístění zcela vpravo má deformovanou stěnu
-$X = $X - $posun_zprava;
-$Xr = "12";//10 - pro objekty krátké v ose Y
+$Xr = "12"; // 10 - pro objekty krátké v ose Y
 $Xl = "36.5";
-$Yr = "15.5";//29
+$Yr = "15.5"; // 29
 $Yl = "15.5";
 $vodici_tyce_Z = 21;
 $vodici_tyce_Y = "17.4";
@@ -248,200 +105,126 @@ $vodici_tyce_Y = "17.4";
 $smer_X = ($Xl <= $Xr ? "zleva_doprava" : "zprava_doleva");
 $smer_Y = ($Yl <= $Yr ? "zepredu_dozadu" : "zezadu_dopredu");
 
-$rozprostrit_instance_po_cele_podlozce = (empty($_GET) or (isset($_GET["rozprostrit_instance_po_cele_podlozce"]) and $_GET["rozprostrit_instance_po_cele_podlozce"]));
-$rozprostrit_instance_v_ose_x = (empty($_GET) or (isset($_GET["rozprostrit_instance_v_ose_x"]) and $_GET["rozprostrit_instance_v_ose_x"]));
-$rozprostrit_instance_v_ose_y = (empty($_GET) or (isset($_GET["rozprostrit_instance_v_ose_y"]) and $_GET["rozprostrit_instance_v_ose_y"]));
+/* Nastavení (UI) */
+$rozprostrit_instance_po_cele_podlozce = (empty($_GET) || (isset($_GET["rozprostrit_instance_po_cele_podlozce"]) && $_GET["rozprostrit_instance_po_cele_podlozce"]));
+$rozprostrit_instance_v_ose_x = (empty($_GET) || (isset($_GET["rozprostrit_instance_v_ose_x"]) && $_GET["rozprostrit_instance_v_ose_x"]));
+$rozprostrit_instance_v_ose_y = (empty($_GET) || (isset($_GET["rozprostrit_instance_v_ose_y"]) && $_GET["rozprostrit_instance_v_ose_y"]));
+$umistit_na_stred_v_ose_x = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_ose_x"]) && $_GET["umistit_na_stred_v_ose_x"]));
+$umistit_na_stred_v_ose_y = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_ose_y"]) && $_GET["umistit_na_stred_v_ose_y"]));
 
-/* Objekty - TODO předělat na zadávání přes formulář (hotovo), možná i uložení do DB (přes Adinistraci stran - 1) Vložení objektů, Vložení sady, Provazba mezi sadou, objektem a zadání počtu instancí */
-
+/* Objekty (z UI/GET) */
 $objekty = [];
-
-/* Načtení objektů z GETu */
-if (isset($_GET["objekty"]) and is_array($_GET["objekty"]) and !empty($_GET["objekty"])) {
+if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objekty"])) {
 	$objekty = $_GET["objekty"];
-	/* Ošetření vstupních hodnot */
 	foreach ($objekty as $key => $objekt) {
 		foreach ($objekt as $key1 => $hodnota) {
 			if (is_string($hodnota)) $objekty[$key][$key1] = str_replace(",", ".", $hodnota);
 		}
-	}
-}
-//print_r($objekty);
-
-$pocet_objektu = count($objekty);
-
-/* Upravení objektů */
-if ($pocet_objektu > 0) {
-	$objekty_upravene = $chyby_v_rozmerech = [];
-	foreach ($objekty as $id => $objekt) {
-		foreach ($objekt as $parametr => $hodnota) {
-			$hodnota_upravena = $hodnota;
-			if (in_array($parametr, ["x", "y", "z"])) {
-				$hodnota_upravena += "0.01"; // kvůli možnému zaokrouhlení rozměru objektu v PrusaSliceru směrem dolů
-				if ($hodnota_upravena > $tiskova_plocha[$parametr]) {
-					$chyby_v_rozmerech[$id][$parametr] = $hodnota_upravena;
-					continue(2);
-				}
-			}
-			$objekty_upravene[$id][$parametr] = $hodnota_upravena;
-		}
+		// Normalizace rozměrů na max 2 desetinná místa (bez přidávání 0.01).
+		if (isset($objekty[$key]["x"])) $objekty[$key]["x"] = normalize_input_2dp($objekty[$key]["x"]);
+		if (isset($objekty[$key]["y"])) $objekty[$key]["y"] = normalize_input_2dp($objekty[$key]["y"]);
+		if (isset($objekty[$key]["z"])) $objekty[$key]["z"] = normalize_input_2dp($objekty[$key]["z"]);
 	}
 }
 
-if (!empty($objekty_upravene)) {
-	/* Seřazení objektů od nejnižších - TODO řadit od nejnižších v rámci řady, další řady mohou začínat nižším objektem než je poslední objekt v předešlé řadě */
-	$objekty_serazene = array_msort($objekty_upravene, array('z' => SORT_ASC, 'y' => SORT_ASC, 'x' => SORT_ASC));
+/* Výpočet */
+$pos = $objekty_serazene = $datova_veta_pole = $Xcount_pole = $zbyva_v_ose_X = [];
+$zbyva_v_ose_Y = 0;
+$pocet_instanci = $pocet_rad = $pocet_podlozek = $Xcount = 0;
+$Xcount_min = $Xcount_max = 0;
+$text_nad_tabulkou = "";
+$datova_veta_json = "[]";
 
-	$W = $objekty_serazene[0]["x"];
-	$L = $objekty_serazene[0]["y"];
-	$H = $objekty_serazene[0]["z"];
+if (!empty($objekty)) {
+	$objekty_input = $objekty; // zachovat pro formulář (aby se hodnoty po odeslání neměnily)
 
-	/* Počet objektů v ose X */
-	$Xcount = 0;
-	$Xcount = (int)(($X - $W) / ($W + $Xr)) + 1;
-	//echo 'Xcount = '.$Xcount.'<br />';
+	$calculator = new SequentialPrintCalculator(
+		[
+			"x" => $tiskova_plocha["x"],
+			"y" => $tiskova_plocha["y"],
+			"z" => $tiskova_plocha["z"],
+			"posun_zprava" => $posun_zprava,
+			"Xr" => $Xr,
+			"Xl" => $Xl,
+			"Yr" => $Yr,
+			"Yl" => $Yl,
+			"vodici_tyce_Z" => $vodici_tyce_Z,
+			"vodici_tyce_Y" => $vodici_tyce_Y
+		],
+		[
+			"rozprostrit_instance_po_cele_podlozce" => $rozprostrit_instance_po_cele_podlozce,
+			"rozprostrit_instance_v_ose_x" => $rozprostrit_instance_v_ose_x,
+			"rozprostrit_instance_v_ose_y" => $rozprostrit_instance_v_ose_y
+		]
+	);
 
-	/* Počet objektů v ose Y */
-	$Ycount = 0;
-	$Ycount = (int)(($Y - $L) / ($L + $Yr)) + 1;
-	//echo 'Ycount = '.$Ycount.'<br />';
-	$pocet_instanci0 = $Xcount * $Ycount;
+	$vysledek = $calculator->calculate($objekty);
 
-	/* Rovnoměrné rozložení objektů v ose X - minimalizuje se možnost kolize tiskové hlavy s již vytištěnými objekty */
-	$Xr1 = ($X - ($W * $Xcount)) / ($Xcount - 1);
-	$Xr1 = (int)($Xr1 * 100) / 100;
-	//echo 'Xr1 = '.$Xr1.'<br />';
-
-	/* Rovnoměrné rozložení objektů v ose Y - minimalizuje se možnost kolize tiskové hlavy s již vytištěnými objekty */
-	$Yr1 = ($Y - ($L * $Ycount)) / ($Ycount - 1);
-	$Yr1 = (int)($Yr1 * 100) / 100;
-	//echo 'Yr1 = '.$Yr1.'<br />';
-
-	/* Zjištění pozic objektů/instancí a počtu instancí */
-	$pos = [];
-	$i = $posun_y = $pocet_instanci = $pocet_rad = 0;
-	$pocet_podlozek = $p = $o = 1; // TODO předělat v závislosti na ID objektu; přidat možnost umístění na více podložek
-	for ($y = 1; $y <= $Ycount; $y++) {
-		//echo 'y = '.$y.'<br />';
-		for ($x = 1; $x <= $Xcount; $x++) {
-			$i++;
-			if ($i > 1 and $x > 1 and $H > $vodici_tyce_Z and $L > $vodici_tyce_Y) {
-				$posun_y += ($L - $vodici_tyce_Y);
-			}
-			if ($smer_X == "zleva_doprava") $ix = ($W / 2) + ($x - 1) * ($W + $Xr1);
-			else $ix = $X - ($W / 2) - ($x - 1) * ($W + $Xr1);
-			//echo 'ix = '.$ix.'<br />';
-			if ($smer_Y == "zepredu_dozadu") $iy = ($L / 2) + ($y - 1) * ($L + ($posun_y > 0 ? $Yr : $Yr1)) + $posun_y;
-			else $iy = $Y - ($L / 2) - ($y - 1) * ($L + ($posun_y > 0 ? $Yr : $Yr1)) - $posun_y;
-			//echo 'iy = ".$iy."<br />';
-			if (($iy + ($L / 2)) > $Y) {
-				break(2);
-			}
-			$pocet_instanci++;
-			$pos[$p][$y][$x] = [
-				"o" => $o,
-				"i" => $i,
-				"X" => $ix,
-				"Y" => $iy
-			];
-			if ($x == 1) $pocet_rad++;
-		}
+	// Do UI vrátím původní rozměry, ale doplním instances[r] z výpočtu.
+	$objekty_vysledek = $vysledek["objekty"];
+	$objekty = $objekty_input;
+	foreach ($objekty as $id => $o) {
+		if (!isset($objekty[$id]["instances"])) $objekty[$id]["instances"] = [];
+		if (isset($objekty_vysledek[$id]["instances"]["r"])) $objekty[$id]["instances"]["r"] = $objekty_vysledek[$id]["instances"]["r"];
 	}
-
-	$omezeny_pocet_instanci_v_rade = 0;
-
-	vypocitej_pozici_instanci();
-
-	$id_prvniho_objektu = array_key_first($objekty);
-	$byly_umisteny_vsechny_pozadovane_instance_vsech_objektu = $byly_umisteny_vsechny_pozadovane_nemaximalni_instance_prvniho_objektu = true;
-	$byly_umisteny_vsechny_pozadovane_instance_objektu = $byla_umistena_alespon_jedna_instance_objektu = [];
-	foreach ($objekty as $id => $objekt) {
-		if ($objekt["instances"]["r"] < $objekt["instances"]["d"]) {
-			$byly_umisteny_vsechny_pozadovane_instance_vsech_objektu = false;
-			if ($id == $id_prvniho_objektu and $objekt["instances"]["d"] < MAXIMALNI_POCET_INSTANCI) $byly_umisteny_vsechny_pozadovane_nemaximalni_instance_prvniho_objektu = false;
-			$byly_umisteny_vsechny_pozadovane_instance_objektu[$id] = false;
-			if ($objekt["instances"]["r"] == 0) $byla_umistena_alespon_jedna_instance_objektu[$id] = false;
-		}
-	}
-	if (!$byly_umisteny_vsechny_pozadovane_nemaximalni_instance_prvniho_objektu) {
-		$krome_techto_objektu = [$id_prvniho_objektu];
-		prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(0, $krome_techto_objektu); // nastavím ostatním objektům nulový počet požadovaných instancí
-		$maximalni_mozny_pocet_instanci_prvniho_objektu = $objekty[$id_prvniho_objektu]["instances"]["r"];
-		if ($maximalni_mozny_pocet_instanci_prvniho_objektu > 0) { // už se mi podařilo umístit všechny možné instance prvního objektu
-			for ($i = 1; $i <= MAXIMALNI_POCET_ITERACI; $i++) { // budu dalším objektům postupně přidávat počet požadovaných instancí, zda se ještě vlezou na podložku
-				prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu($i, $krome_techto_objektu);
-			  if ($objekty[$id_prvniho_objektu]["instances"]["r"] < $maximalni_mozny_pocet_instanci_prvniho_objektu) { // narazil jsem na limit, už mám méně instancí prvního objektu, vrátím se o krok zpět
-					prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(($i - 1), $krome_techto_objektu);
-					break;
-				}
-			}
-		}
-	}
-	elseif (!empty($byla_umistena_alespon_jedna_instance_objektu)) {
-		vypocitej_prumerny_pocet_instanci();
-		nastav_pomerny_pocet_vyslednych_instanci();
-		nastav_pole_krome_techto_objektu();
-		prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(0, $krome_techto_objektu, true); // nastavím ostatním objektům nulový počet požadovaných instancí
-		for ($i = 1; $i <= MAXIMALNI_POCET_ITERACI; $i++) { // budu dalším objektům postupně snižovat počet požadovaných instancí, zda dosáhnu poměrného počtu vysledných instancí
-			vypocitej_prumerny_pocet_instanci();
-			nastav_pomerny_pocet_vyslednych_instanci();
-		  //var_dump($i);
-			//var_dump($pomerny_pocet_vyslednych_instanci[$id]);
-			$dosahuje_kazdy_objekt_pomerneho_poctu_vyslednych_instanci = true;
-			$objekt_jiz_presahuje_pomerny_pocet_vyslednych_instanci = false;
-			foreach ($byla_umistena_alespon_jedna_instance_objektu as $id => $objekt) {
-				if ($objekty[$id]["instances"]["r"] < $pomerny_pocet_vyslednych_instanci[$id]) {
-					//var_dump($objekty[$id]["instances"]["r"]);
-					//var_dump($pomerny_pocet_vyslednych_instanci[$id]);
-					$dosahuje_kazdy_objekt_pomerneho_poctu_vyslednych_instanci = false;
-					break;
-				}
-				elseif ($objekty[$id]["instances"]["r"] > $pomerny_pocet_vyslednych_instanci[$id]) {
-					//var_dump($objekty[$id]["instances"]["r"]);
-					//var_dump($pomerny_pocet_vyslednych_instanci[$id]);
-					$objekt_jiz_presahuje_pomerny_pocet_vyslednych_instanci = true;
-					break;
-				}
-			}
-			if ($dosahuje_kazdy_objekt_pomerneho_poctu_vyslednych_instanci) {
-				if ($objekt_jiz_presahuje_pomerny_pocet_vyslednych_instanci) {
-					//prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(($i - 1), $krome_techto_objektu, true); // vrátim se o krok zpět
-					prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu(0, $krome_techto_objektu, true); // vrátim se o krok zpět
-					//var_dump("ano");
-				}
-				break;
-			}
-			else prepocitej_s_upravou_pozadovaneho_poctu_instanci_objektu($i, $krome_techto_objektu, true); // snížím ostatním objektům počet požadovaných instancí
-		}
-	}
-
-	if ($rozprostrit_instance_po_cele_podlozce) {
-		$pocet_instanci_zaloha = $pocet_instanci1;
-		for ($i = $pocet_rad1; $i <= MAXIMALNI_POCET_ITERACI; $i++) { // začnu vypočtenými řadami a budu přidávat
-			prepocitej_s_rozprostrenim_po_cele_tiskove_podlozce($pocet_instanci_zaloha, $i); // přepočítám
-			if ($pocet_instanci1 < $pocet_instanci_zaloha) { // jakmile narazím, že už se na podložku nevleze tolik instancí, kolik na začátku, vrátím se o jednu řadu zpět a ukončím přepočet
-				prepocitej_s_rozprostrenim_po_cele_tiskove_podlozce($pocet_instanci_zaloha, ($i - 1));
-				break;
-			}
-		}
-	}
-
+	$objekty_serazene = $vysledek["objekty_serazene"];
+	$pos = $vysledek["pos"];
+	$datova_veta_pole = $vysledek["datova_veta_pole"];
 	$datova_veta_json = json_encode($datova_veta_pole);
-	//print_r($objekty);
-	//print_r($pos);
-	//print_r($pos1);
-	//print_r($pos2);
-	//$pos = $pos1; // Použiji nový způsob výpočtu
-	$pos = $pos2; // Použiji nový způsob výpočtu včetně rovnoměrného rozmístění objektů po celé podložce
-	$pocet_instanci = $pocet_instanci1;
-	$pocet_rad = $pocet_rad1;
-	$pocet_podlozek = $pocet_podlozek1;
-	$Xcount = $Xcount1;
-	$Xcount_min = min($Xcount_pole);
-	$Xcount_max = max($Xcount_pole);
-	$Xcount_string = ($Xcount_min == $Xcount_max ? $Xcount_max : ($Xcount_min."&ndash;".$Xcount_max));
-	$text_nad_tabulkou = 'Na podložku se '.sklonovani($pocet_instanci, "vleze", "vlezou", "vleze").' <strong>'.$pocet_instanci.'</strong> '.sklonovani($pocet_instanci, "instance", "instance", "instancí").' ('.$Xcount_string.' '.sklonovani($Xcount_max, "instance", "instance", "instancí").' '.sklonovani($pocet_rad, "v", "ve", "v").' '.$pocet_rad.' '.sklonovani($pocet_rad, "řadě", "řadách", "řadách").').';
+	$zbyva_v_ose_X = $vysledek["zbyva_v_ose_X"];
+	$zbyva_v_ose_Y = $vysledek["zbyva_v_ose_Y"];
+	$pocet_instanci = $vysledek["pocet_instanci"];
+	$pocet_rad = $vysledek["pocet_rad"];
+	$pocet_podlozek = $vysledek["pocet_podlozek"];
+	$Xcount = $vysledek["Xcount"];
+	$Xcount_pole = $vysledek["Xcount_pole"];
+	$Xcount_min = $vysledek["Xcount_min"];
+	$Xcount_max = $vysledek["Xcount_max"];
+
+	if ($pocet_instanci > 0) {
+		$Xcount_string = ($Xcount_min == $Xcount_max ? $Xcount_max : ($Xcount_min."&ndash;".$Xcount_max));
+		$text_nad_tabulkou = 'Na podložku se '.sklonovani($pocet_instanci, "vleze", "vlezou", "vleze").' <strong>'.$pocet_instanci.'</strong> '.sklonovani($pocet_instanci, "instance", "instance", "instancí").' ('.$Xcount_string.' '.sklonovani($Xcount_max, "instance", "instance", "instancí").' '.sklonovani($pocet_rad, "v", "ve", "v").' '.$pocet_rad.' '.sklonovani($pocet_rad, "řadě", "řadách", "řadách").').';
+	}
 }
+
+/* JSON výstup (pro API / integrace) */
+if (isset($_GET["format"]) && $_GET["format"] === "json") {
+	header("Content-Type: application/json; charset=UTF-8");
+	$printer_json = [
+		"x" => $tiskova_plocha["x"],
+		"y" => $tiskova_plocha["y"],
+		"z" => $tiskova_plocha["z"],
+		"posun_zprava" => $posun_zprava,
+		"Xr" => (float)$Xr,
+		"Xl" => (float)$Xl,
+		"Yr" => (float)$Yr,
+		"Yl" => (float)$Yl,
+		"vodici_tyce_Z" => (float)$vodici_tyce_Z,
+		"vodici_tyce_Y" => (float)$vodici_tyce_Y,
+		"smer_X" => $smer_X,
+		"smer_Y" => $smer_Y
+	];
+	if (isset($vysledek) && is_array($vysledek) && isset($vysledek["printer"])) {
+		$printer_json = $vysledek["printer"];
+	}
+	echo json_encode(
+		[
+			"positions" => $datova_veta_pole,
+			"pocet_instanci" => $pocet_instanci,
+			"pocet_podlozek" => $pocet_podlozek,
+			"objekty" => $objekty,
+			"printer" => $printer_json
+		],
+		JSON_UNESCAPED_UNICODE
+	);
+	exit;
+}
+
+// Cache busting / no-cache pro HTML (mobilní prohlížeče často agresivně cachují).
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+header("Expires: 0");
 
 /* Vypsání HTML */
 ?>
@@ -450,32 +233,115 @@ if (!empty($objekty_upravene)) {
   <head>
     <title>Sekvenční tisk</title>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<?php $APP_VERSION = (string)@filemtime(__FILE__); ?>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js?v=<?php echo htmlspecialchars($APP_VERSION, ENT_QUOTES, "UTF-8");?>"></script>
 		<script>
 			id_objektu = -1;
 			objekty = <?php echo (!empty($objekty) ? json_encode($objekty) : "[]");?>;
 
+			function reindex_rows () {
+				// Přerovná name="objekty[i][...]" podle pořadí řádků, aby server dostal konzistentní pole.
+				const rows = $("table#objekty tr[data-row='1']");
+				rows.each(function(idx){
+					const $tr = $(this);
+					$tr.attr("id", "objekt_" + idx);
+					$tr.attr("data-idx", idx);
+					$tr.find("td.cell_id").text(idx + 1);
+					$tr.find("input[name^='objekty']").each(function(){
+						const name = $(this).attr("name") || "";
+						const replaced = name.replace(/^objekty\[\d+\]/, "objekty[" + idx + "]");
+						$(this).attr("name", replaced);
+					});
+				});
+				id_objektu = rows.length - 1;
+			}
+
 			function smazat_radek_tabulky (objekt_id) {
 				$("#objekt_"+objekt_id).remove();
+				reindex_rows();
 			}
 
 			function pridej_radek_do_tabulky (par_id_objektu) {
 				id_objektu++;
 				if (par_id_objektu) id_objektu = parseInt(par_id_objektu);
 				const { x = "", y = "", z = "" } = objekty[id_objektu] || {};
-				instances = (objekty[id_objektu] ? objekty[id_objektu]["instances"]["d"] : <?php echo MAXIMALNI_POCET_INSTANCI;?>);
+				instances = (objekty[id_objektu] ? objekty[id_objektu]["instances"]["d"] : "max");
 				const vysledny_pocet_instanci = (objekty[id_objektu] && objekty[id_objektu]["instances"]["r"]) || "";
+				const isMax = (instances === "max");
+				// Pro default "max" nechci uživateli předvyplňovat 99.
+				const instancesNum = (!objekty[id_objektu] && isMax) ? "" : (isMax ? "" : instances);
 				$("table#objekty").append(
-					`<tr id="objekt_${id_objektu}">
-						<td>${id_objektu + 1}</td>
-						<td><input type="number" name="objekty[${id_objektu}][x]" value="${x}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input type="number" name="objekty[${id_objektu}][y]" value="${y}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input class="instances" type="number" name="objekty[${id_objektu}][instances][d]" value="${instances}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" required="required" /></td>
-						<td><button type="button" onclick='javascript:smazat_radek_tabulky(${id_objektu});'>Smazat</button></td>
-						${objekty[id_objektu] ? `<td>${vysledny_pocet_instanci}</td>` : ""}
+					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
+						<td class="cell_id">${id_objektu + 1}</td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${x}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${y}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td class="instances_cell">
+							<div class="instances_row" style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
+								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${instancesNum}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" ${isMax ? "disabled" : "required"} />
+								<label style="display:inline-flex; gap:6px; align-items:center; color: var(--muted); font-weight:700;">
+									<input class="instances_max" type="checkbox" ${isMax ? "checked" : ""} />
+									max
+								</label>
+								<input class="instances_d" type="hidden" name="objekty[${id_objektu}][instances][d]" value="${isMax ? "max" : instancesNum}" />
+							</div>
+						</td>
+						<td class="actions">
+							<div style="display:flex; gap:6px; flex-wrap:wrap;">
+								<button class="small row_action" type="button" data-action="up" title="Přesunout nahoru">↑</button>
+								<button class="small row_action" type="button" data-action="down" title="Přesunout dolů">↓</button>
+								<button class="small row_action" type="button" data-action="dup" title="Duplikovat">Duplikovat</button>
+								<button class="small row_action" type="button" data-action="del" title="Smazat">Smazat</button>
+							</div>
+						</td>
+						<td class="cell_result">${vysledny_pocet_instanci}</td>
 					</tr>`
 				);
+				reindex_rows();
+			}
+
+			function get_form_state () {
+				const state = {
+					version: 1,
+					objekty: [],
+					nastaveni: {
+						rozprostrit_instance_v_ose_x: $("#rozprostrit_instance_v_ose_x").prop("checked") ? 1 : 0,
+						rozprostrit_instance_v_ose_y: $("#rozprostrit_instance_v_ose_y").prop("checked") ? 1 : 0,
+						rozprostrit_instance_po_cele_podlozce: $("#rozprostrit_instance_po_cele_podlozce").prop("checked") ? 1 : 0,
+						umistit_na_stred_v_ose_x: $("#umistit_na_stred_v_ose_x").prop("checked") ? 1 : 0,
+						umistit_na_stred_v_ose_y: $("#umistit_na_stred_v_ose_y").prop("checked") ? 1 : 0
+					}
+				};
+				$("table#objekty tr[data-row='1']").each(function(){
+					const $tr = $(this);
+					const x = $tr.find("input[name$='[x]']").val();
+					const y = $tr.find("input[name$='[y]']").val();
+					const z = $tr.find("input[name$='[z]']").val();
+					const max = $tr.find("input.instances_max").prop("checked");
+					const d = max ? "max" : $tr.find("input.instances_num").val();
+					state.objekty.push({ x: x, y: y, z: z, instances: { d: d } });
+				});
+				return state;
+			}
+
+			function set_form_state (state) {
+				// Vyčistí tabulku a vloží řádky podle JSONu (bez automatického výpočtu).
+				const objektyIn = Array.isArray(state?.objekty) ? state.objekty : [];
+				objekty = objektyIn;
+				id_objektu = -1;
+				$("table#objekty tr[data-row='1']").remove();
+				$.each(objektyIn, function(index){
+					pridej_radek_do_tabulky(index);
+				});
+				if (objektyIn.length === 0) pridej_radek_do_tabulky();
+
+				const n = state?.nastaveni || {};
+				$("#rozprostrit_instance_v_ose_x").prop("checked", !!n.rozprostrit_instance_v_ose_x);
+				$("#rozprostrit_instance_v_ose_y").prop("checked", !!n.rozprostrit_instance_v_ose_y);
+				$("#rozprostrit_instance_po_cele_podlozce").prop("checked", !!n.rozprostrit_instance_po_cele_podlozce);
+				$("#umistit_na_stred_v_ose_x").prop("checked", !!n.umistit_na_stred_v_ose_x);
+				$("#umistit_na_stred_v_ose_y").prop("checked", !!n.umistit_na_stred_v_ose_y);
 			}
 
       $(document).ready(function(){
@@ -485,46 +351,680 @@ if (!empty($objekty_upravene)) {
 				});
 				$('#nastaveni').hide();
 				$('#zbyvajici_misto').hide();
+
+				// --- Ukládání/načítání konfigurace bez DB (localStorage) ---
+				const LS_KEY = 'sekvencni_tisk:last_query';
+
+				function setStatus(msg) {
+					const el = document.getElementById('local_status');
+					if (!el) return;
+					el.textContent = msg || '';
+					if (msg) setTimeout(() => { el.textContent = ''; }, 2500);
+				}
+
+				$('#save_local').on('click', function () {
+					try {
+						localStorage.setItem(LS_KEY, window.location.search || '');
+						setStatus('Uloženo');
+					} catch (e) {
+						setStatus('Nelze uložit (localStorage)');
+					}
+				});
+
+				$('#load_local').on('click', function () {
+					const q = localStorage.getItem(LS_KEY);
+					if (!q) return setStatus('Není co načíst');
+					window.location.search = q;
+				});
+
+				$('#clear_local').on('click', function () {
+					localStorage.removeItem(LS_KEY);
+					setStatus('Smazáno');
+				});
+
+				$('#example_basic').on('click', function () {
+					// rychlý příklad pro otestování
+					const params = new URLSearchParams();
+					params.set('objekty[0][x]', '50');
+					params.set('objekty[0][y]', '50');
+					params.set('objekty[0][z]', '100');
+					params.set('objekty[0][instances][d]', 'max');
+					window.location.search = '?' + params.toString();
+				});
+
+				// Akce v řádcích (delegace)
+				$(document).on('click', 'button.row_action', function () {
+					const action = $(this).data('action');
+					const $tr = $(this).closest('tr');
+					if (!$tr.length) return;
+					if (action === 'del') {
+						$tr.remove();
+						if ($("table#objekty tr[data-row='1']").length === 0) pridej_radek_do_tabulky();
+						reindex_rows();
+						return;
+					}
+					if (action === 'dup') {
+						const $clone = $tr.clone(true);
+						$clone.insertAfter($tr);
+						reindex_rows();
+						return;
+					}
+					if (action === 'up') {
+						const $prev = $tr.prevAll("tr[data-row='1']").first();
+						if ($prev.length) $tr.insertBefore($prev);
+						reindex_rows();
+						return;
+					}
+					if (action === 'down') {
+						const $next = $tr.nextAll("tr[data-row='1']").first();
+						if ($next.length) $tr.insertAfter($next);
+						reindex_rows();
+						return;
+					}
+				});
+
+				// Max checkbox pro počet instancí
+				$(document).on('change', 'input.instances_max', function () {
+					const $tr = $(this).closest('tr');
+					const isMax = $(this).prop('checked');
+					const $num = $tr.find('input.instances_num');
+					const $hidden = $tr.find('input.instances_d');
+					if (isMax) {
+						$num.val('');
+						$num.prop('disabled', true);
+						$num.prop('required', false);
+						$hidden.val('max');
+					} else {
+						$num.prop('disabled', false);
+						$num.prop('required', true);
+						$hidden.val($num.val() || '');
+						$num.focus();
+					}
+				});
+				$(document).on('input', 'input.instances_num', function () {
+					const $tr = $(this).closest('tr');
+					const $max = $tr.find('input.instances_max');
+					// Když uživatel začne psát číslo, automaticky vypni max.
+					if ($max.prop('checked')) {
+						$max.prop('checked', false);
+						$(this).prop('disabled', false);
+						$(this).prop('required', true);
+					}
+					$tr.find('input.instances_d').val($(this).val());
+				});
+
+				// Import / Export JSON vstupu (bez DB)
+				function openModal() { $("#io_modal").removeAttr("hidden"); }
+				function closeModal() { $("#io_modal").attr("hidden","hidden"); }
+
+				function roundTo2(v) {
+					if (v === null || v === undefined) return v;
+					const s = String(v).replace(',', '.').trim();
+					if (s === '') return '';
+					const n = Number(s);
+					if (!Number.isFinite(n)) return s;
+					// Nechci vnucovat trailing nuly.
+					return (Math.round(n * 100) / 100).toString();
+				}
+
+				// Omezit rozměry na 2 desetinná místa (při opuštění polí + před submit)
+				$(document).on('blur', "input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']", function () {
+					$(this).val(roundTo2($(this).val()));
+				});
+				$("form").on('submit', function () {
+					$(this).find("input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']").each(function(){
+						$(this).val(roundTo2($(this).val()));
+					});
+				});
+
+				$('#export_input').on('click', function () {
+					const st = get_form_state();
+					$("#io_title").text("Export vstupu (JSON)");
+					$("#io_text").val(JSON.stringify(st, null, 2));
+					$("#io_hint").text("Tento JSON si můžeš uložit nebo poslat dál. Importem se jen vyplní formulář.");
+					openModal();
+				});
+				$('#import_input').on('click', function () {
+					$("#io_title").text("Import vstupu (JSON)");
+					$("#io_text").val("");
+					$("#io_hint").text("Vlož JSON z exportu a klikni na Importovat.");
+					openModal();
+				});
+				$('#io_close').on('click', closeModal);
+				// zavření klikem mimo panel
+				$('#io_modal').on('click', function (e) {
+					if (e.target && e.target.id === 'io_modal') closeModal();
+				});
+				// zavření klávesou ESC
+				$(document).on('keydown', function (e) {
+					if (e.key === 'Escape') closeModal();
+				});
+				$('#io_copy').on('click', async function () {
+					const el = document.getElementById('io_text');
+					if (!el) return;
+					try { await navigator.clipboard.writeText(el.value); }
+					catch (e) { el.focus(); el.select(); document.execCommand('copy'); }
+				});
+				$('#io_import').on('click', function () {
+					let parsed = null;
+					try { parsed = JSON.parse($("#io_text").val() || ""); }
+					catch (e) { return setStatus("Nevalidní JSON"); }
+					set_form_state(parsed);
+					setStatus("Načteno");
+					closeModal();
+					$('#nastaveni').show();
+				});
+
+				$('#copy_json').on('click', async function () {
+					const el = document.getElementById('json_textarea');
+					if (!el) return;
+					try {
+						await navigator.clipboard.writeText(el.value);
+						$(this).text('Zkopírováno');
+						setTimeout(() => $(this).text('Kopírovat JSON'), 1200);
+					} catch (e) {
+						// fallback: select + copy
+						el.focus();
+						el.select();
+						document.execCommand('copy');
+					}
+				});
+
+				$('#copy_link').on('click', async function () {
+					try {
+						await navigator.clipboard.writeText(window.location.href);
+						$(this).text('Odkaz zkopírován');
+						setTimeout(() => $(this).text('Kopírovat odkaz'), 1200);
+					} catch (e) {
+						setStatus('Nelze zkopírovat odkaz');
+					}
+				});
+
+				$('#download_json').on('click', function () {
+					const el = document.getElementById('json_textarea');
+					if (!el || !el.value) return setStatus('Není co stáhnout');
+					const blob = new Blob([el.value], { type: 'application/json;charset=utf-8' });
+					const url = URL.createObjectURL(blob);
+					const a = document.createElement('a');
+					a.href = url;
+					a.download = 'sekvencni-tisk-positions.json';
+					document.body.appendChild(a);
+					a.click();
+					a.remove();
+					URL.revokeObjectURL(url);
+				});
+
+				// U velmi malých instancí schovej popisky, aby nepřetékaly mimo obdélník (mobil).
+				function adaptInstanceLabels() {
+					const bed = document.getElementById('tiskova_podlozka');
+					if (!bed) return;
+					bed.querySelectorAll('.instance').forEach(inst => {
+						const rect = inst.getBoundingClientRect();
+						const label = inst.firstElementChild;
+						if (!label) return;
+						const tooSmall = rect.width < 26 || rect.height < 26;
+						label.style.display = tooSmall ? 'none' : '';
+					});
+				}
+				adaptInstanceLabels();
+				window.addEventListener('resize', adaptInstanceLabels);
+
+				// Header klik = návrat na homepage bez GET parametrů
+				$('#app_header').on('click', function () {
+					window.location.href = window.location.pathname;
+				});
+
+				// Mobil: detaily bez hover + „tisková hlava“
+				let headEnabled = false;
+				let selectedIdx = null;
+
+				function setDetails(text) {
+					const el = document.getElementById('instance_details');
+					if (!el) return;
+					el.textContent = text || '';
+				}
+
+				function pickHeadStep(headSteps, height) {
+					if (!Array.isArray(headSteps) || headSteps.length === 0) return null;
+					let best = headSteps[0];
+					for (const s of headSteps) {
+						if (Number(s.z) <= height) best = s;
+						else break;
+					}
+					return best;
+				}
+
+				function renderHeadForSelection() {
+					const bed = document.getElementById('tiskova_podlozka');
+					if (!bed) return;
+					const overlay = bed.querySelector('.overlay');
+					if (!overlay) return;
+					overlay.innerHTML = '';
+
+					const instances = Array.from(bed.querySelectorAll('.instance'));
+					instances.forEach(el => el.classList.remove('selected'));
+					if (!headEnabled || selectedIdx === null || !instances[selectedIdx]) return;
+
+					const el = instances[selectedIdx];
+					el.classList.add('selected');
+
+					const bedX = parseFloat(bed.style.getPropertyValue('--bed-x')) || 1;
+					const bedY = parseFloat(bed.style.getPropertyValue('--bed-y')) || 1;
+
+					const o = parseInt(el.dataset.o || '0', 10);
+					const i = parseInt(el.dataset.i || '0', 10);
+					const ox = parseFloat(el.dataset.ox || '0');
+					const oy = parseFloat(el.dataset.oy || '0');
+					const oz = parseFloat(el.dataset.oz || '0');
+					const left = parseFloat(el.dataset.left || '0');
+					const bottom = parseFloat(el.dataset.bottom || '0');
+
+					let headSteps = [];
+					let printer = {};
+					try { headSteps = bed.dataset.headSteps ? JSON.parse(bed.dataset.headSteps) : []; } catch (e) { headSteps = []; }
+					try { printer = bed.dataset.printer ? JSON.parse(bed.dataset.printer) : {}; } catch (e) { printer = {}; }
+
+					// Tryska v nejvíc kolizním rohu podle globálního směru tisku.
+					const smerX = (printer && printer.smer_X) ? printer.smer_X : 'zleva_doprava';
+					const smerY = (printer && printer.smer_Y) ? printer.smer_Y : 'zepredu_dozadu';
+					// Podle upřesnění: při tisku "zprava" je kolizní strana vpravo.
+					const nozzleX = (smerX === 'zleva_doprava') ? left : (left + ox);
+					const nozzleY = (smerY === 'zepredu_dozadu') ? bottom : (bottom + oy);
+
+					const step = pickHeadStep(headSteps, oz) || { Xl: printer.Xl, Xr: printer.Xr, Yl: printer.Yl, Yr: printer.Yr };
+
+					const hx0 = nozzleX - (parseFloat(step.Xl) || 0);
+					const hx1 = nozzleX + (parseFloat(step.Xr) || 0);
+					const hy0 = nozzleY - (parseFloat(step.Yl) || 0);
+					const hy1 = nozzleY + (parseFloat(step.Yr) || 0);
+
+					const head = document.createElement('div');
+					head.className = 'head';
+					head.style.left = (hx0 / bedX * 100) + '%';
+					head.style.bottom = (hy0 / bedY * 100) + '%';
+					head.style.width = ((hx1 - hx0) / bedX * 100) + '%';
+					head.style.height = ((hy1 - hy0) / bedY * 100) + '%';
+					overlay.appendChild(head);
+
+					const noz = document.createElement('div');
+					noz.className = 'nozzle';
+					noz.style.left = (nozzleX / bedX * 100) + '%';
+					noz.style.bottom = (nozzleY / bedY * 100) + '%';
+					overlay.appendChild(noz);
+
+					// Vodící tyč zobraz jen když nějaký dřívější objekt (v pořadí tisku) byl vyšší než prahová Z.
+					const vodiciZ = (printer && printer.vodici_tyce_Z !== undefined) ? parseFloat(printer.vodici_tyce_Z) : null;
+					let showRod = false;
+					if (vodiciZ !== null && Number.isFinite(vodiciZ)) {
+						const selectedSeq = parseInt(el.dataset.seq || '0', 10);
+						for (const inst of instances) {
+							const seq = parseInt(inst.dataset.seq || '0', 10);
+							if (seq > 0 && seq < selectedSeq) {
+								const zPrev = parseFloat(inst.dataset.oz || '0');
+								if (zPrev > vodiciZ) { showRod = true; break; }
+							}
+						}
+					}
+
+					if (showRod && printer && printer.vodici_tyce_Y !== undefined) {
+						const rod = document.createElement('div');
+						rod.className = 'rod';
+						const vodiciY = parseFloat(printer.vodici_tyce_Y);
+						// Vodící tyče jsou na pohyblivé části – zobrazíme je relativně k trysce.
+						const rodY = (smerY === 'zepredu_dozadu') ? (nozzleY + vodiciY) : (nozzleY - vodiciY);
+						const rodYClamped = Math.max(0, Math.min(bedY, rodY));
+						rod.style.bottom = (rodYClamped / bedY * 100) + '%';
+						overlay.appendChild(rod);
+					}
+
+					const zInfo = (showRod && printer && printer.vodici_tyce_Z !== undefined) ? `, vodící tyče od Z=${printer.vodici_tyce_Z}mm` : '';
+					setDetails(`Vybráno: Objekt ${o}, instance ${i} — výška ${oz}mm${zInfo}`);
+				}
+
+				function setSelected(idx) {
+					const bed = document.getElementById('tiskova_podlozka');
+					if (!bed) return;
+					const instances = bed.querySelectorAll('.instance');
+					if (!instances.length) return;
+					selectedIdx = Math.max(0, Math.min(idx, instances.length - 1));
+					renderHeadForSelection();
+				}
+
+				$(document).on('click', '#tiskova_podlozka .instance', function () {
+					const bed = document.getElementById('tiskova_podlozka');
+					const instances = bed ? bed.querySelectorAll('.instance') : [];
+					const idx = Array.prototype.indexOf.call(instances, this);
+					if (idx >= 0) {
+						// Na klik vždy vyberu instanci (a zobrazím detaily); hlava jen pokud je zapnutá.
+						const o = this.dataset.o || '?';
+						const i = this.dataset.i || '?';
+						setDetails(`Objekt ${o}, instance ${i}\n${this.getAttribute('title') || ''}`);
+						setSelected(idx);
+					}
+				});
+
+				$('#toggle_head').on('click', function () {
+					headEnabled = !headEnabled;
+					$('#head_controls').css('display', headEnabled ? 'inline-flex' : 'none');
+					$(this).text(headEnabled ? 'Skrýt tiskovou hlavu' : 'Zobrazit tiskovou hlavu');
+					if (headEnabled) {
+						// Default: 2. instance (pokud existuje)
+						const bed = document.getElementById('tiskova_podlozka');
+						const instances = bed ? bed.querySelectorAll('.instance') : [];
+						setSelected(instances.length >= 2 ? 1 : 0);
+					} else {
+						renderHeadForSelection();
+					}
+				});
+				$('#head_prev').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx - 1); });
+				$('#head_next').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx + 1); });
+
+				// Mobil: po výpočtu schovej celé sekce (včetně nadpisu) a nech jen tlačítka
+				function applyMobileCollapse() {
+					const isSmall = window.matchMedia && window.matchMedia('(max-width: 720px)').matches;
+					const hasResult = document.querySelector('[data-has-result="1"]');
+					if (!isSmall || !hasResult) return;
+					['#section_form', '#section_positions', '#section_json'].forEach(sel => {
+						const el = document.querySelector(sel);
+						if (el) el.classList.add('mobile-hidden');
+					});
+					document.querySelectorAll('.mobile-section-toggle').forEach(btn => {
+						const label = btn.getAttribute('data-label') || 'sekci';
+						btn.textContent = 'Zobrazit ' + label;
+					});
+				}
+				applyMobileCollapse();
+				$(document).on('click', '.mobile-section-toggle', function(){
+					const target = this.getAttribute('data-target');
+					const el = target ? document.querySelector(target) : null;
+					if (!el) return;
+					const label = this.getAttribute('data-label') || 'sekci';
+					const isHidden = el.classList.contains('mobile-hidden');
+					if (isHidden) {
+						el.classList.remove('mobile-hidden');
+						this.textContent = 'Skrýt ' + label;
+					} else {
+						el.classList.add('mobile-hidden');
+						this.textContent = 'Zobrazit ' + label;
+					}
+				});
 			});
 		</script>
     <style>
-			body { padding: 1em; font: 85% Verdana, 'DejaVu Sans', 'Arial CE', Arial, 'Helvetica CE', Helvetica, sans-serif; }
-			h1 { margin-top: 0; }
-			h2 { margin-top: 0; }
-      table { margin-bottom: 1em; border-collapse: collapse; }
-      table tr th { padding: 0.2em 0.3em; border: 1px solid black; }
-      table tr td { padding: 0.2em 0.3em; border: 1px solid black; text-align: right; vertical-align: top; }
-			table tr td input { width: 4em; text-align: right; }
-			button[type=submit] { font-weight: bold; }
-			label { font-weight: bold; width: 16em; display: inline-block; }
-			#nastaveni { margin: 1em 0; padding: 1em; border: 1px solid black; }
-			#nastaveni h2 { margin: 0 0 0.3em 0; }
-			#nastaveni p { margin: 0; padding: 0; }
-			#pozice_instanci { margin: 0 2em 1em 0; float: left; }
-			#tiskova_podlozka { float: left; position: relative; width: <?php echo $tiskova_plocha["x"];?>px; height: <?php echo $tiskova_plocha["y"];?>px; border: 1px solid black; zoom: 2; }
-			#tiskova_podlozka .instance { position: absolute; border: none; background: black; font-size: 0.5em; color: white; text-align: center; vertical-align: middle; }
-			#json_h2 { clear: left; }
+			:root {
+				/* --- PrusaSlicer Accurate Palette --- */
+				--bg-body: #202020;       /* Main window background */
+				--bg-panel: #292929;      /* Panels / Sidebar */
+				--bg-input: #1a1a1a;      /* Inset inputs */
+				--bg-header: #181818;     /* Top strip / Brand area */
+				--bg-active: #383838;     /* Hover states / Active rows */
+
+				--accent-primary: #fd6925; /* Official Prusa Orange */
+				--accent-hover: #e0551a;
+				--accent-text: #ffffff;
+
+				--text-main: #eeeeee;
+				--text-muted: #999999;
+
+				--border-color: #444444;  /* Standard border */
+				--border-input: #555555;  /* Input specific border */
+				--border-focus: #fd6925;
+
+				--success: #75b54b;
+				--danger: #ff4d4d;
+
+				/* Back-compat proměnné */
+				--bg: var(--bg-body);
+				--card: var(--bg-panel);
+				--text: var(--text-main);
+				--muted: var(--text-muted);
+				--border: var(--border-color);
+				--accent: var(--accent-primary);
+				--accent-2: var(--accent-hover);
+				--shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+				--radius: 14px;
+			}
+
+			* { box-sizing: border-box; }
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--text);
+				font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+			}
+			a { color: var(--accent); }
+			.container { max-width: 1200px; margin: 0 auto; padding: 18px; }
+			.header {
+				display: flex;
+				gap: 12px;
+				align-items: baseline;
+				justify-content: space-between;
+				margin-bottom: 14px;
+				background: var(--bg-header);
+				border: 1px solid var(--border-color);
+				border-radius: var(--radius);
+				padding: 12px 14px;
+				cursor: pointer;
+			}
+			.header h1 { margin: 0; font-size: 20px; }
+			.header .sub { color: var(--muted); font-size: 13px; }
+
+			h2 { margin: 18px 0 10px; font-size: 16px; }
+			.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
+			.card-title { margin: 0; font-size: 16px; }
+
+			.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
+			button, input[type=number], textarea {
+				border-radius: 12px;
+				border: 1px solid var(--border-input);
+				background: var(--bg-input);
+				color: var(--text);
+				padding: 9px 12px;
+				font: inherit;
+			}
+			button { cursor: pointer; }
+			button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 700; }
+			button.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+			button.ghost { background: var(--card); }
+			button:hover { background: var(--bg-active); }
+			button.small { padding: 7px 10px; border-radius: 10px; font-size: 13px; }
+			button:active { transform: translateY(1px); }
+			input[type=number] { width: 100%; min-width: 74px; text-align: right; }
+			input[type=number]:focus, textarea:focus, button:focus {
+				outline: 2px solid var(--border-focus);
+				outline-offset: 1px;
+			}
+			/* Kompaktní inputy v tabulce objektů */
+			table#objekty { width: max-content; }
+			table#objekty th, table#objekty td { padding: 8px 8px; }
+			table#objekty input.dim { max-width: 5.2rem; min-width: 4.2rem; }
+			table#objekty input.instances_num { max-width: 4.6rem; min-width: 3.8rem; }
+			table#objekty td.actions { text-align: left; white-space: nowrap; }
+			table#objekty td.instances_cell { white-space: nowrap; }
+			table#objekty td.instances_cell .instances_row { flex-wrap: nowrap !important; gap: 8px !important; }
+			table#objekty td.instances_cell label { white-space: nowrap; }
+
+			.table-wrap { overflow-x: auto; }
+			table { width: 100%; border-collapse: separate; border-spacing: 0; }
+			th, td { padding: 10px 10px; border-bottom: 1px solid var(--border-color); vertical-align: top; }
+			th { text-align: left; color: var(--muted); font-weight: 700; font-size: 12px; }
+			td { text-align: right; }
+			/* Necháme výchozí: th vlevo, td vpravo (i 1. sloupec bývá často číslo). */
+			tr:last-child td { border-bottom: none; }
+
+			#nastaveni { margin-top: 12px; }
+			#nastaveni { margin-top: 12px; max-width: 560px; }
+			#nastaveni .grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+			#nastaveni label {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				font-weight: 600;
+				color: var(--text);
+			}
+			#nastaveni label .hint { color: var(--muted); font-weight: 600; }
+
+			.remaining-grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 14px; align-items: start; }
+			@media (max-width: 980px) { .remaining-grid { grid-template-columns: 1fr; } }
+			table.compact { width: auto; }
+			table.compact th, table.compact td { white-space: nowrap; }
+
+			.layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; align-items: start; }
+			@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+			.bed-wrap { display: grid; gap: 10px; }
+			#tiskova_podlozka {
+				position: relative;
+				width: 100%;
+				max-width: 720px;
+				aspect-ratio: var(--bed-x) / var(--bed-y);
+				border-radius: 0;
+				border: 1px solid var(--border-color);
+				background:
+					linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 24px 24px,
+					linear-gradient(to top, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 24px 24px,
+					var(--bg-input);
+				box-shadow: var(--shadow);
+				overflow: hidden;
+				margin: 0 auto;
+			}
+			#tiskova_podlozka .overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+			#tiskova_podlozka .rod {
+				position: absolute;
+				left: 0;
+				right: 0;
+				height: 2px;
+				background: rgba(238,238,238,0.35);
+			}
+			#tiskova_podlozka .head {
+				position: absolute;
+				border: 2px solid rgba(253,105,37,0.85);
+				background: rgba(253,105,37,0.12);
+			}
+			#tiskova_podlozka .nozzle {
+				position: absolute;
+				width: 8px;
+				height: 8px;
+				margin-left: -4px;
+				margin-bottom: -4px;
+				border-radius: 50%;
+				background: rgba(253,105,37,0.95);
+				box-shadow: 0 6px 16px rgba(253,105,37,0.35);
+			}
+			#tiskova_podlozka .instance {
+				position: absolute;
+				left: calc(var(--x) * 1%);
+				bottom: calc(var(--y) * 1%);
+				width: calc(var(--w) * 1%);
+				height: calc(var(--h) * 1%);
+				border-radius: 0;
+				background: linear-gradient(135deg, rgba(253,105,37,0.95), rgba(224,85,26,0.92));
+				color: #fff;
+				display: grid;
+				place-items: center;
+				font-weight: 700;
+				font-size: 12px;
+				box-shadow: 0 8px 20px rgba(0,0,0,0.30);
+				user-select: none;
+				z-index: 2;
+				overflow: hidden; /* klíčové pro malé instance na mobilu */
+			}
+			#tiskova_podlozka .instance > div {
+				max-width: 100%;
+				max-height: 100%;
+				overflow: hidden;
+				line-height: 1.05;
+				font-size: clamp(9px, 2.3vw, 12px);
+			}
+			#tiskova_podlozka .instance:hover {
+				outline: 3px solid rgba(253,105,37,0.45);
+				outline-offset: 2px;
+			}
+			#tiskova_podlozka .instance.selected {
+				outline: 3px solid rgba(253,105,37,0.70);
+				outline-offset: 1px;
+			}
+
+			.modal {
+				position: fixed;
+				inset: 0;
+				background: rgba(0, 0, 0, 0.65);
+				display: grid;
+				place-items: center;
+				padding: 16px;
+				z-index: 50;
+			}
+			.modal[hidden] { display: none !important; }
+			.modal .panel {
+				width: min(92vw, 900px);
+				background: var(--bg-panel);
+				border-radius: var(--radius);
+				border: 1px solid var(--border-color);
+				box-shadow: var(--shadow);
+				padding: 14px;
+			}
+			.modal .panel .top {
+				display: flex;
+				gap: 10px;
+				align-items: baseline;
+				justify-content: space-between;
+				margin-bottom: 8px;
+			}
+			.modal .panel h3 { margin: 0; font-size: 15px; }
+			.modal .hint { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+			#io_text { width: 100%; min-height: 220px; }
+			#tiskova_podlozka .instance small { opacity: 0.9; font-weight: 600; }
+
+			/* Mobile: po výpočtu schovej sekundární sekce (celá sekce včetně nadpisu) */
+			.mobile-section-toggle { display: none; width: fit-content; }
+			@media (max-width: 720px) {
+				.mobile-section-toggle {
+					display: inline-flex;
+					width: fit-content;
+					max-width: 100%;
+					justify-content: flex-start;
+					justify-self: start;
+					align-self: start;
+					place-self: start;
+					margin: 10px 0;
+				}
+				.mobile-section { display: block; }
+				.mobile-hidden { display: none !important; }
+			}
+
+			#json_textarea {
+				width: 100%;
+				min-height: 120px;
+				border-radius: 12px;
+				border: 1px solid var(--border-input);
+				padding: 10px 12px;
+				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+				font-size: 12px;
+				color: var(--text-main);
+			}
     </style>
   </head>
   <body>
-		<h1>Sekvenční tisk</h1>
+		<div class="container">
+			<div id="app_header" class="header" title="Zpět na úvod (bez parametrů)">
+				<h1>Sekvenční tisk</h1>
+				<div class="sub">Výpočet rozložení instancí pro sekvenční tisk</div>
+			</div>
 
-		<h2>Objekty</h2>
-
-		<form method="get" action="./index1.php">
+		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form" data-label="formulář">Zobrazit formulář</button>
+		<div id="section_form" class="mobile-section">
+		<form method="get" action="./index.php" class="card">
+			<div class="toolbar" style="margin: 0 0 8px;">
+				<h2 style="margin:0; flex:1;">Objekty</h2>
+			</div>
+			<div class="table-wrap">
 			<table id="objekty">
 				<tr>
 					<th rowspan="2">ID<br />objektu</th>
 					<th colspan="3">Rozměry objektu (mm)</th>
-					<th rowspan="2">Požadovaný<br />počet instancí<br />(<?php echo MAXIMALNI_POCET_INSTANCI;?>=max)</th>
-					<th rowspan="2">Smazat<br />řádek</th>
-<?php
-if (!empty($pocet_instanci_objektu)) {
-?>
-					<th rowspan="2">Výsledný<br />počet instancí</th>
-<?php
-}
-?>
+					<th rowspan="2">Požadovaný počet instancí</th>
+					<th rowspan="2">Akce</th>
+					<th rowspan="2">Vypočtený<br />počet instancí</th>
 				</tr>
 				<tr>
 					<th>x</th>
@@ -532,11 +1032,12 @@ if (!empty($pocet_instanci_objektu)) {
 					<th>z</th>
 				</tr>
 			</table>
+			</div>
 
 			<div id="nastaveni">
 				<h2>Nastavení</h2>
 
-				<p>
+				<div class="grid">
 					<!-- TODO přidat nastavení:
 					  rozměry tiskové plochy, hlavy, vodících tyčí
 						přednastavení pro různé tiskárny (Prusa MINI, MK3...)
@@ -545,25 +1046,59 @@ if (!empty($pocet_instanci_objektu)) {
 						množství filamentu - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkového množství
 						doba tisku - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkové doby
 			    -->
-					<label for="rozprostrit_instance_v_ose_x">Rozprostřít instance v ose X</label>
-					<input id="rozprostrit_instance_v_ose_x" type="checkbox" name="rozprostrit_instance_v_ose_x" value="1" <?php if($rozprostrit_instance_v_ose_x) {?>checked="checked" <?php }?>/><br />
-					<label for="rozprostrit_instance_v_ose_y">Rozprostřít instance v ose Y</label>
-					<input id="rozprostrit_instance_v_ose_y" type="checkbox" name="rozprostrit_instance_v_ose_y" value="1" <?php if($rozprostrit_instance_v_ose_y) {?>checked="checked" <?php }?>/><br />
-					<label for="umistit_na_stred_v_ose_x">Umístit na střed v ose X</label>
-					<input id="umistit_na_stred_v_ose_x" type="checkbox" name="umistit_na_stred_v_ose_x" value="1" <?php if($umistit_na_stred_v_ose_x) {?>checked="checked" <?php }?>/><br />
-					<label for="umistit_na_stred_v_ose_y">Umístit na střed v ose Y</label>
-					<input id="umistit_na_stred_v_ose_y" type="checkbox" name="umistit_na_stred_v_ose_y" value="1" <?php if($umistit_na_stred_v_ose_y) {?>checked="checked" <?php }?>/><br />
-					<label for="rozprostrit_instance_po_cele_podlozce">Rozprostřít instance po celé podložce</label>
-					<input id="rozprostrit_instance_po_cele_podlozce" type="checkbox" name="rozprostrit_instance_po_cele_podlozce" value="1" <?php if($rozprostrit_instance_po_cele_podlozce) {?>checked="checked" <?php }?>/>
-				</p>
+					<label for="rozprostrit_instance_v_ose_x">
+						<input id="rozprostrit_instance_v_ose_x" type="checkbox" name="rozprostrit_instance_v_ose_x" value="1" <?php if($rozprostrit_instance_v_ose_x) {?>checked="checked" <?php }?>/>
+						<span class="hint">Rozprostřít instance v ose X (rovnoměrně)</span>
+					</label>
+					<label for="rozprostrit_instance_v_ose_y">
+						<input id="rozprostrit_instance_v_ose_y" type="checkbox" name="rozprostrit_instance_v_ose_y" value="1" <?php if($rozprostrit_instance_v_ose_y) {?>checked="checked" <?php }?>/>
+						<span class="hint">Rozprostřít instance v ose Y (rovnoměrně)</span>
+					</label>
+					<label for="umistit_na_stred_v_ose_x">
+						<input id="umistit_na_stred_v_ose_x" type="checkbox" name="umistit_na_stred_v_ose_x" value="1" <?php if($umistit_na_stred_v_ose_x) {?>checked="checked" <?php }?>/>
+						<span class="hint">Umístit na střed v ose X</span>
+					</label>
+					<label for="umistit_na_stred_v_ose_y">
+						<input id="umistit_na_stred_v_ose_y" type="checkbox" name="umistit_na_stred_v_ose_y" value="1" <?php if($umistit_na_stred_v_ose_y) {?>checked="checked" <?php }?>/>
+						<span class="hint">Umístit na střed v ose Y</span>
+					</label>
+					<label for="rozprostrit_instance_po_cele_podlozce">
+						<input id="rozprostrit_instance_po_cele_podlozce" type="checkbox" name="rozprostrit_instance_po_cele_podlozce" value="1" <?php if($rozprostrit_instance_po_cele_podlozce) {?>checked="checked" <?php }?>/>
+						<span class="hint">Rozprostřít po celé podložce (hledání řad)</span>
+					</label>
+				</div>
 			</div>
 
-			<p>
-				<button type="button" onclick="javascript:pridej_radek_do_tabulky();">Přidat řádek</button>
-				<button type="button" onclick="javascript:$('#nastaveni').toggle(100);">Nastavení</button>
-			  <button type="submit">Vypočítat</button>
-			</p>
+			<div class="toolbar">
+				<button class="ghost" type="button" onclick="javascript:pridej_radek_do_tabulky();">Přidat řádek</button>
+				<button class="ghost" type="button" onclick="javascript:$('#nastaveni').toggle(120);">Nastavení</button>
+				<button class="ghost" id="example_basic" type="button" title="Vyplní ukázková data">Příklad</button>
+				<button class="ghost" id="save_local" type="button" title="Uloží aktuální odkaz (query) do prohlížeče">Uložit</button>
+				<button class="ghost" id="load_local" type="button" title="Načte uložený odkaz z prohlížeče">Načíst</button>
+				<button class="ghost" id="clear_local" type="button" title="Smaže uložené nastavení">Smazat</button>
+				<button class="ghost" id="export_input" type="button" title="Export vstupu (objekty + nastavení) do JSON">Export</button>
+				<button class="ghost" id="import_input" type="button" title="Import vstupu (objekty + nastavení) z JSON">Import</button>
+				<button class="ghost" id="copy_link" type="button" title="Zkopíruje odkaz pro sdílení konfigurace">Kopírovat odkaz</button>
+			  <button class="primary" type="submit">Vypočítat</button>
+				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
+			</div>
 		</form>
+		</div>
+
+		<div id="io_modal" class="modal" hidden="hidden">
+			<div class="panel">
+				<div class="top">
+					<h3 id="io_title">Import/Export</h3>
+					<button id="io_close" class="small" type="button">Zavřít</button>
+				</div>
+				<div id="io_hint" class="hint"></div>
+				<textarea id="io_text" placeholder='{"objekty":[...],"nastaveni":{...}}'></textarea>
+				<div class="toolbar" style="margin-top: 10px;">
+					<button id="io_copy" class="ghost" type="button">Kopírovat</button>
+					<button id="io_import" class="primary" type="button">Importovat</button>
+				</div>
+			</div>
+		</div>
 
 <?php
 if (!empty($chyby_v_rozmerech)) {
@@ -600,24 +1135,30 @@ if (false and !empty($objekty)) {
 }
 if ($text_nad_tabulkou) {
 ?>
-		<p><?php echo $text_nad_tabulkou;?></p>
+		<div class="card" style="margin-top: 14px;" data-has-result="1">
+			<?php echo $text_nad_tabulkou;?>
+		</div>
 
 <?php
 }
 if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 ?>
-		<p>
-		  <button type="button" onclick="javascript:$('#zbyvajici_misto').toggle(100);">Zobrazit/skrýt zbývající místo</button>
-		</p>
+		<div class="toolbar" style="margin-top: 14px;">
+		  <button class="ghost" type="button" onclick="javascript:$('#zbyvajici_misto').toggle(120);">Zobrazit/skrýt zbývající místo</button>
+		</div>
 
-		<div id="zbyvajici_misto">
+		<div id="zbyvajici_misto" style="margin-top: 10px;">
 <?php
 }
 if (!empty($zbyva_v_ose_X)) {
 ?>
-			<h2>Zbývá místa v ose X</h2>
-
-			<table>
+			<div class="remaining-grid">
+			<div class="card" style="margin-top: 12px;">
+			<div class="toolbar" style="margin: 0 0 8px;">
+				<h2 class="card-title">Zbývá místa v ose X</h2>
+			</div>
+			<div class="table-wrap">
+			<table class="compact">
 				<tr>
 					<th>Řada</th>
 					<th>Zbývá</th>
@@ -637,13 +1178,18 @@ if (!empty($zbyva_v_ose_X)) {
 	}
 ?>
     	</table>
+			</div>
+			</div>
 <?php
 }
 if ($zbyva_v_ose_Y) {
 ?>
-			<h2>Zbývá místa v ose Y</h2>
-
-			<table>
+			<div class="card" style="margin-top: 12px;">
+			<div class="toolbar" style="margin: 0 0 8px;">
+				<h2 class="card-title">Zbývá místa v ose Y</h2>
+			</div>
+			<div class="table-wrap">
+			<table class="compact">
 				<tr>
 					<th>Zbývá</th>
 					<th>Počet řad</th>
@@ -658,18 +1204,25 @@ if ($zbyva_v_ose_Y) {
 		echo '</tr>';
 ?>
     	</table>
+			</div>
+			</div>
 <?php
 }
 if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 ?>
+			</div>
 		</div>
 <?php
 }
 if (!empty($pos)) {
 ?>
-		<div id="pozice_instanci">
-			<h2>Pozice instancí</h2>
-
+		<div class="layout" style="margin-top: 14px;">
+			<button id="toggle_section_positions" class="ghost small mobile-section-toggle" type="button" data-target="#section_positions" data-label="pozice instancí">Zobrazit pozice instancí</button>
+			<div id="section_positions" class="card mobile-section">
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 class="card-title">Pozice instancí</h2>
+				</div>
+			<div class="table-wrap">
 			<table>
 				<tr>
 					<th>Podložka</th>
@@ -702,18 +1255,39 @@ if (!empty($pos)) {
 	}
 ?>
 			</table>
-		</div>
+			</div>
+			</div>
 
-		<div id="vizualizace">
-			<h2>Vizualizace</h2>
-
-			<div id="tiskova_podlozka">
+		<div class="bed-wrap">
+			<div class="card">
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 style="margin:0; flex:1;">Vizualizace</h2>
+					<button id="toggle_head" class="small ghost" type="button">Zobrazit tiskovou hlavu</button>
+					<span id="head_controls" style="display:none; gap:6px; align-items:center;">
+						<button id="head_prev" class="small ghost" type="button" title="Předchozí instance">←</button>
+						<button id="head_next" class="small ghost" type="button" title="Další instance">→</button>
+					</span>
+				</div>
+				<?php
+					$vizX = (isset($vysledek) && isset($vysledek["printer"]["x"]) ? (float)$vysledek["printer"]["x"] : (float)$tiskova_plocha["x"] - (float)$posun_zprava);
+					$vizY = (isset($vysledek) && isset($vysledek["printer"]["y"]) ? (float)$vysledek["printer"]["y"] : (float)$tiskova_plocha["y"]);
+				?>
+				<div style="color: var(--muted); font-size: 13px; margin: 0 0 10px;">
+					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Hover pro detaily
+				</div>
+				<div id="tiskova_podlozka"
+						 data-printer='<?php echo htmlspecialchars(json_encode($vysledek["printer"] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
+						 data-head-steps='<?php echo htmlspecialchars(json_encode(($vysledek["printer"]["head_steps"] ?? []), JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
+						 style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>;">
+					<div class="overlay"></div>
 <?php
+	$seq = 0;
 	foreach ($pos as $p => $podlozka) {
 		$pocet_instanci_na_podlozce = $pocet_instanci;
 		foreach ($podlozka as $y => $rada) {
 			$pocet_instanci_v_rade = count($rada);
 			foreach ($rada as $x => $instance) {
+				$seq++;
 				$o = $instance["o"];
 				$i = $instance["i"];
 				$objekt = $objekty_serazene[($o - 1)];
@@ -724,19 +1298,36 @@ if (!empty($pos)) {
 				$iy = $instance["Y"];
 				$ix_levy_dolni_roh = $ix - ($ox / 2);
 				$iy_levy_dolni_roh = $iy - ($oy / 2);
-				echo '			  <div class="instance" style="width: '.format_cislo($ox, false, 2, false, ".").'px; height: '.format_cislo($oy, false, 2, false, ".").'px; line-height: '.format_cislo($oy, false, 2, false, ".").'px; left: '.format_cislo($ix_levy_dolni_roh, false, 2, false, ".").'px; bottom: '.format_cislo($iy_levy_dolni_roh, false, 2, false, ".").'px;" title="'.$o.' - '.$i.'">'.$i.'</div>';
+				$left_pct = ($vizX > 0 ? ($ix_levy_dolni_roh / $vizX) * 100 : 0);
+				$bottom_pct = ($vizY > 0 ? ($iy_levy_dolni_roh / $vizY) * 100 : 0);
+				$w_pct = ($vizX > 0 ? ($ox / $vizX) * 100 : 0);
+				$h_pct = ($vizY > 0 ? ($oy / $vizY) * 100 : 0);
+				$title = 'Objekt '.$o.' / instance '.$i."\n".
+					'Rozměr: '.format_cislo($ox, false, 2).'×'.format_cislo($oy, false, 2).'×'.format_cislo($oz, false, 2)." mm\n".
+					'Pozice (levý přední roh): '.format_cislo($ix_levy_dolni_roh, false, 2).' ; '.format_cislo($iy_levy_dolni_roh, false, 2).' mm';
+				echo '			  <div class="instance" data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'" data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
 			}
 		}
 	}
 ?>
+				</div>
+				<div id="instance_details" style="margin-top: 10px; color: var(--muted); font-size: 13px; white-space: pre-wrap;"></div>
+			</div>
+
+			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json" data-label="JSON">Zobrazit JSON</button>
+			<div id="section_json" class="card mobile-section">
+				<div class="toolbar" style="margin: 0 0 8px;">
+					<h2 class="card-title" style="flex:1;">JSON</h2>
+					<button id="copy_json" class="small" type="button">Kopírovat JSON</button>
+					<button id="download_json" class="small" type="button">Stáhnout JSON</button>
+				</div>
+				<textarea id="json_textarea" readonly="readonly"><?php echo($datova_veta_json);?></textarea>
 			</div>
 		</div>
-
-		<h2 id="json_h2">JSON</h2>
-
-		<p id="json"><?php echo($datova_veta_json);?></p>
+		</div>
 <?php
 }
 ?>
+	</div>
   </body>
 </html>
