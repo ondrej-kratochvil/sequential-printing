@@ -708,6 +708,8 @@ header("Expires: 0");
 				} else {
 					// Hash načten -> formulář se vyplnil v loadFromHash
 				}
+				
+				$('#download_json').on('click', function () {
 					const el = document.getElementById('json_textarea');
 					if (!el || !el.value) return setStatus('Není co stáhnout');
 					const blob = new Blob([el.value], { type: 'application/json;charset=utf-8' });
