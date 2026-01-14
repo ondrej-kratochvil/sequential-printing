@@ -358,11 +358,17 @@ header("Expires: 0");
 				
 				if (!hasHash) {
 					// Pokud není hash, použijeme data z PHP (objekty).
-					// Pokud je pole objekty prázdné (uživatel přišel poprvé nebo smazal parametry),
-					// přidáme jeden prázdný řádek.
+					// JS renderuje tabulku na základě proměnné 'objekty'.
+					
+					// Vyčistíme případné existující řádky (pro jistotu)
+					$("table#objekty tr[data-row='1']").remove();
+					id_objektu = -1;
+
 					if (Array.isArray(objekty) && objekty.length == 0) {
+						// Pokud nejsou žádná data, přidáme jeden prázdný řádek.
 						pridej_radek_do_tabulky(); 
 					} else {
+						// Pokud jsou data, vyrenderujeme je.
 						$.each(objekty, function(index, value) {
 							pridej_radek_do_tabulky(index);
 						});
@@ -1146,9 +1152,12 @@ header("Expires: 0");
 			}
 			.card.is-fullscreen #tiskova_podlozka {
 				max-width: none;
+				/* Zachování poměru stran: výška bude max 85vh, šířka se dopočítá podle aspect-ratio. */
+				width: auto; 
+				height: auto;
 				max-height: 85vh;
-				width: 100%;
-				height: 100%;
+				/* Pokud by podložka byla moc široká, omezíme i šířku (např. 95vw) */
+				max-width: 95vw;
 				aspect-ratio: var(--bed-x) / var(--bed-y);
 				margin: auto;
 			}
