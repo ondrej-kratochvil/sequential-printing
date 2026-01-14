@@ -357,10 +357,16 @@ header("Expires: 0");
 				const hasHash = window.location.hash && window.location.hash.startsWith('#s=');
 				
 				if (!hasHash) {
-					if (Array.isArray(objekty) && objekty.length == 0) pridej_radek_do_tabulky(); // platí pouze v případě "[]", protože předaný JSON není polem
-					else $.each(objekty, function(index, value) {
-						pridej_radek_do_tabulky(index);
-					});
+					// Pokud není hash, použijeme data z PHP (objekty).
+					// Pokud je pole objekty prázdné (uživatel přišel poprvé nebo smazal parametry),
+					// přidáme jeden prázdný řádek.
+					if (Array.isArray(objekty) && objekty.length == 0) {
+						pridej_radek_do_tabulky(); 
+					} else {
+						$.each(objekty, function(index, value) {
+							pridej_radek_do_tabulky(index);
+						});
+					}
 				}
 
 				$('#nastaveni').hide();
@@ -701,10 +707,14 @@ header("Expires: 0");
 
 				if (!loadFromHash()) {
 					// Původní logika inicializace (pokud není hash)
-					if (Array.isArray(objekty) && objekty.length == 0) pridej_radek_do_tabulky(); 
-					else $.each(objekty, function(index, value) {
-						pridej_radek_do_tabulky(index);
-					});
+					if (Array.isArray(objekty) && objekty.length == 0) {
+						// Defaultně jen 1 řádek (prázdný), pokud nejsou data
+						pridej_radek_do_tabulky(); 
+					} else {
+						$.each(objekty, function(index, value) {
+							pridej_radek_do_tabulky(index);
+						});
+					}
 				} else {
 					// Hash načten -> formulář se vyplnil v loadFromHash
 				}
@@ -839,11 +849,56 @@ header("Expires: 0");
 					// Koncový bod (tryska v protějším rohu):
 					const endNozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
 					const endNozzleY = (smerY === 'zepredu_dozadu') ? (bottom + oy) : bottom;
+					
+					// Alternativní "kolizní" roh je ten, kde by byla hlava, kdyby tryska byla v rohu objektu, 
+					// který je "nejvíce na ráně" při tisku.
+					// Zadání: "Když je tisk zprava zepředu (zprava_doleva + zepredu_dozadu), tak v levém předním."
+					// Tisk zprava_doleva: tryska startuje vpravo (left + ox).
+					// Tisk zepredu_dozadu: tryska startuje vpředu (bottom).
+					// Startovní roh: pravý přední (vpravo dole).
+					// Hlava se vykresluje kolem startovního rohu.
+					// Kolizní (vedlejší) roh: má být "levý přední" (vlevo dole).
+					
+					// Obecně: 
+					// Tisk v ose X jde od Xstart do Xend.
+					// Startovní roh (tryska): Xstart.
+					// "Vedlejší" roh: Xend.
+					// (Tedy druhý konec hrany v ose X).
+					
+					// Pokud by šlo o Y:
+					// Tisk v ose Y jde od Ystart do Yend.
+					// Pokud se bavíme o "vedlejším" rohu, může to být ten, kam dojede osa X, než se posune Y?
+					// Sekvenční tisk objektu: tiskne se celý objekt najednou. Tryska jezdí všude.
+					// Nebezpečí kolize s tyčemi/hlavou je v tom, že hlava přesahuje půdorys objektu.
+					// Vizualizace "hlava" ukazuje obrys hlavy, když je tryska v "referenčním bodě" objektu (podle smeru tisku).
+					// Pokud je tisk zleva doprava, ref bod je vlevo. Hlava je kolem něj.
+					// Pokud hlava narazí do vedlejšího objektu vpravo, je to problém. To ukazuje standardní vizualizace (hlava kolem startu + šířka objektu).
+					// Ale co když hlava narazí do objektu vlevo (který už je vytištěný)?
+					// To se stane, když tryska dojede na pravý okraj objektu.
+					// Takže "debug hlava" by měla ukazovat polohu hlavy, když je tryska na KONCI osy X (při stejném Y startu).
+					
+					// Tisk zprava_doleva (start vpravo):
+					// Ref bod (start): vpravo.
+					// Konec osy X: vlevo.
+					// Debug hlava má být vlevo.
+					// Zadání: "Když je tisk zprava zepředu, tak v levém předním." -> Sedí. (Start vpravo vpředu, debug vlevo vpředu).
+					
+					// Tisk zleva_doprava (start vlevo):
+					// Ref bod: vlevo.
+					// Konec osy X: vpravo.
+					// Debug hlava má být vpravo.
+					
+					// Osa Y: zůstává na startu (protože zkoumáme kolizi v rámci řady / vedlejší instance).
+					// Takže Y souřadnice trysky pro debug hlavu je stejná jako pro normální hlavu (nozzleY).
+					// X souřadnice je na druhém konci.
+					
+					const debugNozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
+					const debugNozzleY = nozzleY; // Zůstáváme na stejné Y úrovni (vedlejší roh v ose X)
 
-					const dhx0 = endNozzleX - (parseFloat(step.Xl) || 0);
-					const dhx1 = endNozzleX + (parseFloat(step.Xr) || 0);
-					const dhy0 = endNozzleY - (parseFloat(step.Yl) || 0);
-					const dhy1 = endNozzleY + (parseFloat(step.Yr) || 0);
+					const dhx0 = debugNozzleX - (parseFloat(step.Xl) || 0);
+					const dhx1 = debugNozzleX + (parseFloat(step.Xr) || 0);
+					const dhy0 = debugNozzleY - (parseFloat(step.Yl) || 0);
+					const dhy1 = debugNozzleY + (parseFloat(step.Yr) || 0);
 
 					debugHead.style.left = (dhx0 / bedX * 100) + '%';
 					debugHead.style.bottom = (dhy0 / bedY * 100) + '%';
@@ -1092,8 +1147,9 @@ header("Expires: 0");
 			.card.is-fullscreen #tiskova_podlozka {
 				max-width: none;
 				max-height: 85vh;
-				width: auto;
-				height: auto;
+				width: 100%;
+				height: 100%;
+				aspect-ratio: var(--bed-x) / var(--bed-y);
 				margin: auto;
 			}
 			
