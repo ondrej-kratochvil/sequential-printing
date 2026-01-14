@@ -10,6 +10,7 @@ php tests/run.php
 
 ## Nastavení v UI (GET parametry)
 
+- **Počet instancí**: lze zadat číslem, nebo použít `max` (např. `objekty[0][instances][d]=max`).
 - **Rozprostřít instance v ose X**: dorovná zbylé místo v X v rámci řady (rovnoměrně zvětší rozestupy v řadě).
 - **Rozprostřít instance v ose Y**: dorovná zbylé místo v Y **po instancích v pořadí tisku** – 1. instance zůstane na startu směru tisku, další instance se posouvají o rovnoměrný krok.
 - **Rozprostřít po celé podložce**: zkouší měnit počet řad tak, aby se instance využily po celé ploše.
