@@ -511,6 +511,21 @@ header("Expires: 0");
 					URL.revokeObjectURL(url);
 				});
 
+				// U velmi malých instancí schovej popisky, aby nepřetékaly mimo obdélník (mobil).
+				function adaptInstanceLabels() {
+					const bed = document.getElementById('tiskova_podlozka');
+					if (!bed) return;
+					bed.querySelectorAll('.instance').forEach(inst => {
+						const rect = inst.getBoundingClientRect();
+						const label = inst.firstElementChild;
+						if (!label) return;
+						const tooSmall = rect.width < 26 || rect.height < 26;
+						label.style.display = tooSmall ? 'none' : '';
+					});
+				}
+				adaptInstanceLabels();
+				window.addEventListener('resize', adaptInstanceLabels);
+
 				// Header klik = návrat na homepage bez GET parametrů
 				$('#app_header').on('click', function () {
 					window.location.href = window.location.pathname;
@@ -811,7 +826,8 @@ header("Expires: 0");
 			.bed-wrap { display: grid; gap: 10px; }
 			#tiskova_podlozka {
 				position: relative;
-				width: min(92vw, 720px);
+				width: 100%;
+				max-width: 720px;
 				aspect-ratio: var(--bed-x) / var(--bed-y);
 				border-radius: 0;
 				border: 1px solid var(--border-color);
@@ -862,6 +878,14 @@ header("Expires: 0");
 				box-shadow: 0 8px 20px rgba(0,0,0,0.30);
 				user-select: none;
 				z-index: 2;
+				overflow: hidden; /* klíčové pro malé instance na mobilu */
+			}
+			#tiskova_podlozka .instance > div {
+				max-width: 100%;
+				max-height: 100%;
+				overflow: hidden;
+				line-height: 1.05;
+				font-size: clamp(9px, 2.3vw, 12px);
 			}
 			#tiskova_podlozka .instance:hover {
 				outline: 3px solid rgba(253,105,37,0.45);

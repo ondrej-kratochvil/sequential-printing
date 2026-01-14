@@ -16,6 +16,8 @@ php tests/run.php
 
 ## API (JSON)
 
+> **Pozor:** UI (`index.php`) funguje i bez DB. API endpointy (`api.php`, `api_keys.php`) vyžadují DB (API klíče + rate limit), pokud explicitně nenastavíš `API_REQUIRE_KEY=0` pro lokální demo.
+
 Lokálně (GET, stejné parametry jako UI):
 
 ```bash
