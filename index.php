@@ -269,7 +269,8 @@ header("Expires: 0");
 				instances = (objekty[id_objektu] ? objekty[id_objektu]["instances"]["d"] : "max");
 				const vysledny_pocet_instanci = (objekty[id_objektu] && objekty[id_objektu]["instances"]["r"]) || "";
 				const isMax = (instances === "max");
-				const instancesNum = (isMax ? <?php echo MAXIMALNI_POCET_INSTANCI;?> : instances);
+				// Pro default "max" nechci uživateli předvyplňovat 99.
+				const instancesNum = (!objekty[id_objektu] && isMax) ? "" : (isMax ? "" : instances);
 				$("table#objekty").append(
 					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
 						<td class="cell_id">${id_objektu + 1}</td>
@@ -278,7 +279,7 @@ header("Expires: 0");
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td>
 							<div style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
-								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${instancesNum}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" required="required" ${isMax ? "disabled" : ""} />
+								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${instancesNum}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" ${isMax ? "disabled" : "required"} />
 								<label style="display:inline-flex; gap:6px; align-items:center; color: var(--muted); font-weight:700;">
 									<input class="instances_max" type="checkbox" ${isMax ? "checked" : ""} />
 									max
@@ -429,17 +430,26 @@ header("Expires: 0");
 					const $num = $tr.find('input.instances_num');
 					const $hidden = $tr.find('input.instances_d');
 					if (isMax) {
-						$num.val('<?php echo MAXIMALNI_POCET_INSTANCI;?>');
+						$num.val('');
 						$num.prop('disabled', true);
+						$num.prop('required', false);
 						$hidden.val('max');
 					} else {
 						$num.prop('disabled', false);
-						$hidden.val($num.val() || '1');
+						$num.prop('required', true);
+						$hidden.val($num.val() || '');
+						$num.focus();
 					}
 				});
 				$(document).on('input', 'input.instances_num', function () {
 					const $tr = $(this).closest('tr');
-					if ($tr.find('input.instances_max').prop('checked')) return;
+					const $max = $tr.find('input.instances_max');
+					// Když uživatel začne psát číslo, automaticky vypni max.
+					if ($max.prop('checked')) {
+						$max.prop('checked', false);
+						$(this).prop('disabled', false);
+						$(this).prop('required', true);
+					}
 					$tr.find('input.instances_d').val($(this).val());
 				});
 
@@ -1006,7 +1016,7 @@ header("Expires: 0");
 				<tr>
 					<th rowspan="2">ID<br />objektu</th>
 					<th colspan="3">Rozměry objektu (mm)</th>
-					<th rowspan="2">Požadovaný<br />počet instancí</th>
+					<th rowspan="2">Požadovaný počet instancí</th>
 					<th rowspan="2">Akce</th>
 					<th rowspan="2">Vypočtený<br />počet instancí</th>
 				</tr>
