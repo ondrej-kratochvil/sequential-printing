@@ -277,8 +277,8 @@ header("Expires: 0");
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${x}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${y}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td>
-							<div style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
+						<td class="instances_cell">
+							<div class="instances_row" style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
 								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${instancesNum}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" ${isMax ? "disabled" : "required"} />
 								<label style="display:inline-flex; gap:6px; align-items:center; color: var(--muted); font-weight:700;">
 									<input class="instances_max" type="checkbox" ${isMax ? "checked" : ""} />
@@ -287,7 +287,7 @@ header("Expires: 0");
 								<input class="instances_d" type="hidden" name="objekty[${id_objektu}][instances][d]" value="${isMax ? "max" : instancesNum}" />
 							</div>
 						</td>
-						<td style="text-align:left;">
+						<td class="actions">
 							<div style="display:flex; gap:6px; flex-wrap:wrap;">
 								<button class="small row_action" type="button" data-action="up" title="Přesunout nahoru">↑</button>
 								<button class="small row_action" type="button" data-action="down" title="Přesunout dolů">↓</button>
@@ -835,8 +835,14 @@ header("Expires: 0");
 				outline-offset: 1px;
 			}
 			/* Kompaktní inputy v tabulce objektů */
-			table#objekty input.dim { max-width: 6.5rem; min-width: 5.5rem; }
-			table#objekty input.instances_num { max-width: 5.5rem; min-width: 4.5rem; }
+			table#objekty { width: max-content; }
+			table#objekty th, table#objekty td { padding: 8px 8px; }
+			table#objekty input.dim { max-width: 5.2rem; min-width: 4.2rem; }
+			table#objekty input.instances_num { max-width: 4.6rem; min-width: 3.8rem; }
+			table#objekty td.actions { text-align: left; white-space: nowrap; }
+			table#objekty td.instances_cell { white-space: nowrap; }
+			table#objekty td.instances_cell .instances_row { flex-wrap: nowrap !important; gap: 8px !important; }
+			table#objekty td.instances_cell label { white-space: nowrap; }
 
 			.table-wrap { overflow-x: auto; }
 			table { width: 100%; border-collapse: separate; border-spacing: 0; }
