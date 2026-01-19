@@ -116,7 +116,7 @@ $umistit_na_stred_v_ose_y = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_o
 $objekty = [];
 if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objekty"])) {
 	$objekty = $_GET["objekty"];
-	foreach ($objekty as $key => $objekt) {
+		foreach ($objekty as $key => $objekt) {
 		foreach ($objekt as $key1 => $hodnota) {
 			if (is_string($hodnota)) $objekty[$key][$key1] = str_replace(",", ".", $hodnota);
 		}
@@ -124,6 +124,12 @@ if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objek
 		if (isset($objekty[$key]["x"])) $objekty[$key]["x"] = normalize_input_2dp($objekty[$key]["x"]);
 		if (isset($objekty[$key]["y"])) $objekty[$key]["y"] = normalize_input_2dp($objekty[$key]["y"]);
 		if (isset($objekty[$key]["z"])) $objekty[$key]["z"] = normalize_input_2dp($objekty[$key]["z"]);
+
+		// Max semantics: explicitní kontrola
+		// Pokud je "instances[d]" string "max", je to max.
+		// Pokud je číslo, je to číslo.
+		// Pokud chybí, fallback na 1 (nebo max?). Default je nyní max, pokud je zaškrtnuto v UI.
+		// Ale v URL: objekty[0][instances][d]=max vs =5
 	}
 }
 
@@ -298,6 +304,8 @@ header("Expires: 0");
 						<td class="cell_result">${vysledny_pocet_instanci}</td>
 					</tr>`
 				);
+				// Max semantics: zajistit, že pokud je zaškrtnuto MAX, d = "max". Pokud ne, d je číslo. 
+				// To řeší input handler, ale při inicializaci to musí být OK.
 				reindex_rows();
 			}
 
@@ -345,10 +353,28 @@ header("Expires: 0");
 			}
 
       $(document).ready(function(){
-				if (Array.isArray(objekty) && objekty.length == 0) pridej_radek_do_tabulky(); // platí pouze v případě "[]", protože předaný JSON není polem
-				else $.each(objekty, function(index, value) {
-					pridej_radek_do_tabulky(index);
-				});
+				// Load from hash logic moved before default init
+				const hasHash = window.location.hash && window.location.hash.startsWith('#s=');
+				
+				if (!hasHash) {
+					// Pokud není hash, použijeme data z PHP (objekty).
+					// JS renderuje tabulku na základě proměnné 'objekty'.
+					
+					// Vyčistíme případné existující řádky (pro jistotu)
+					$("table#objekty tr[data-row='1']").remove();
+					id_objektu = -1;
+
+					if (Array.isArray(objekty) && objekty.length == 0) {
+						// Pokud nejsou žádná data, přidáme jeden prázdný řádek.
+						pridej_radek_do_tabulky(); 
+					} else {
+						// Pokud jsou data, vyrenderujeme je.
+						$.each(objekty, function(index, value) {
+							pridej_radek_do_tabulky(index);
+						});
+					}
+				}
+
 				$('#nastaveni').hide();
 				$('#zbyvajici_misto').hide();
 
@@ -423,6 +449,46 @@ header("Expires: 0");
 					}
 				});
 
+				// Load hash on startup
+				if (hasHash) {
+					loadFromHash();
+				}
+
+				// Fullscreen toggle
+				const bedWrap = document.querySelector('.bed-wrap');
+				const bedCard = bedWrap ? bedWrap.querySelector('.card') : null;
+				const fsBtn = document.getElementById('fullscreen_toggle');
+
+				if (bedCard && fsBtn) {
+					fsBtn.addEventListener('click', function() {
+						if (!document.fullscreenElement) {
+							if (bedCard.requestFullscreen) bedCard.requestFullscreen();
+							else if (bedCard.webkitRequestFullscreen) bedCard.webkitRequestFullscreen();
+							else if (bedCard.msRequestFullscreen) bedCard.msRequestFullscreen();
+						} else {
+							if (document.exitFullscreen) document.exitFullscreen();
+							else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+							else if (document.msExitFullscreen) document.msExitFullscreen();
+						}
+					});
+
+					document.addEventListener('fullscreenchange', handleFsChange);
+					document.addEventListener('webkitfullscreenchange', handleFsChange);
+					document.addEventListener('mozfullscreenchange', handleFsChange);
+					document.addEventListener('MSFullscreenChange', handleFsChange);
+
+					function handleFsChange() {
+						const isFs = !!document.fullscreenElement;
+						if (isFs) {
+							bedCard.classList.add('is-fullscreen');
+							fsBtn.textContent = 'Zavřít Fullscreen';
+						} else {
+							bedCard.classList.remove('is-fullscreen');
+							fsBtn.textContent = 'Fullscreen';
+						}
+					}
+				}
+
 				// Max checkbox pro počet instancí
 				$(document).on('change', 'input.instances_max', function () {
 					const $tr = $(this).closest('tr');
@@ -467,14 +533,61 @@ header("Expires: 0");
 					return (Math.round(n * 100) / 100).toString();
 				}
 
+				// Validace (inline)
+				function validateRow($tr) {
+					let valid = true;
+					$tr.find("input[type='number']").each(function(){
+						const val = $(this).val();
+						const isRequired = $(this).prop('required');
+						const min = parseFloat($(this).attr('min'));
+						const max = parseFloat($(this).attr('max'));
+						const num = parseFloat(val);
+
+						// Reset styles
+						$(this).css('border-color', '');
+						$(this).attr('title', '');
+
+						if (isRequired && val === '') {
+							$(this).css('border-color', 'var(--danger)');
+							$(this).attr('title', 'Povinné pole');
+							valid = false;
+						} else if (val !== '' && !Number.isFinite(num)) {
+							$(this).css('border-color', 'var(--danger)');
+							$(this).attr('title', 'Musí být číslo');
+							valid = false;
+						} else if (val !== '' && !isNaN(min) && num < min) {
+							$(this).css('border-color', 'var(--danger)');
+							$(this).attr('title', 'Minimum je ' + min);
+							valid = false;
+						} else if (val !== '' && !isNaN(max) && num > max) {
+							$(this).css('border-color', 'var(--danger)');
+							$(this).attr('title', 'Maximum je ' + max);
+							valid = false;
+						}
+					});
+					return valid;
+				}
+
 				// Omezit rozměry na 2 desetinná místa (při opuštění polí + před submit)
 				$(document).on('blur', "input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']", function () {
 					$(this).val(roundTo2($(this).val()));
+					validateRow($(this).closest('tr'));
 				});
-				$("form").on('submit', function () {
+				$("form").on('submit', function (e) {
+					let allValid = true;
+					$("table#objekty tr[data-row='1']").each(function(){
+						if (!validateRow($(this))) allValid = false;
+					});
+					
 					$(this).find("input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']").each(function(){
 						$(this).val(roundTo2($(this).val()));
 					});
+
+					if (!allValid) {
+						e.preventDefault();
+						alert('Opravte prosím chyby ve formuláři (červeně orámované).');
+						return false;
+					}
 				});
 
 				$('#export_input').on('click', function () {
@@ -532,7 +645,24 @@ header("Expires: 0");
 
 				$('#copy_link').on('click', async function () {
 					try {
-						await navigator.clipboard.writeText(window.location.href);
+						// Generování share linku v hashi
+						const state = get_form_state();
+						// Minimalizace JSONu pro URL
+						const minState = {
+							o: state.objekty.map(o => [o.x, o.y, o.z, (o.instances && o.instances.d === "max") ? "m" : o.instances.d]),
+							n: [
+								state.nastaveni.rozprostrit_instance_v_ose_x ? 1 : 0,
+								state.nastaveni.rozprostrit_instance_v_ose_y ? 1 : 0,
+								state.nastaveni.rozprostrit_instance_po_cele_podlozce ? 1 : 0,
+								state.nastaveni.umistit_na_stred_v_ose_x ? 1 : 0,
+								state.nastaveni.umistit_na_stred_v_ose_y ? 1 : 0
+							]
+						};
+						const jsonStr = JSON.stringify(minState);
+						const b64 = btoa(jsonStr);
+						const url = window.location.origin + window.location.pathname + '#s=' + b64;
+						
+						await navigator.clipboard.writeText(url);
 						$(this).text('Odkaz zkopírován');
 						setTimeout(() => $(this).text('Kopírovat odkaz'), 1200);
 					} catch (e) {
@@ -540,6 +670,61 @@ header("Expires: 0");
 					}
 				});
 
+				// Načtení stavu z hashe
+				function loadFromHash() {
+					if (!window.location.hash) return false;
+					const hash = window.location.hash.substring(1); // remove #
+					if (!hash.startsWith('s=')) return false;
+					
+					try {
+						const b64 = hash.substring(2);
+						const jsonStr = atob(b64);
+						const minState = JSON.parse(jsonStr);
+						
+						// Rekonstrukce plného stavu
+						if (minState && Array.isArray(minState.o) && Array.isArray(minState.n)) {
+							const fullState = {
+								objekty: minState.o.map(arr => ({
+									x: arr[0],
+									y: arr[1],
+									z: arr[2],
+									instances: { d: (arr[3] === "m" ? "max" : arr[3]) }
+								})),
+								nastaveni: {
+									rozprostrit_instance_v_ose_x: !!minState.n[0],
+									rozprostrit_instance_v_ose_y: !!minState.n[1],
+									rozprostrit_instance_po_cele_podlozce: !!minState.n[2],
+									umistit_na_stred_v_ose_x: !!minState.n[3],
+									umistit_na_stred_v_ose_y: !!minState.n[4]
+								}
+							};
+							
+							set_form_state(fullState);
+							// Po načtení z hashe rovnou odešleme formulář (aby se spustil výpočet)
+							// Ale musíme počkat na překreslení DOMu
+							setTimeout(() => $("form").submit(), 100);
+							return true;
+						}
+					} catch (e) {
+						console.error('Invalid share link', e);
+					}
+					return false;
+				}
+
+				if (!loadFromHash()) {
+					// Původní logika inicializace (pokud není hash)
+					if (Array.isArray(objekty) && objekty.length == 0) {
+						// Defaultně jen 1 řádek (prázdný), pokud nejsou data
+						pridej_radek_do_tabulky(); 
+					} else {
+						$.each(objekty, function(index, value) {
+							pridej_radek_do_tabulky(index);
+						});
+					}
+				} else {
+					// Hash načten -> formulář se vyplnil v loadFromHash
+				}
+				
 				$('#download_json').on('click', function () {
 					const el = document.getElementById('json_textarea');
 					if (!el || !el.value) return setStatus('Není co stáhnout');
@@ -645,6 +830,87 @@ header("Expires: 0");
 					head.style.width = ((hx1 - hx0) / bedX * 100) + '%';
 					head.style.height = ((hy1 - hy0) / bedY * 100) + '%';
 					overlay.appendChild(head);
+
+					// Debug obdélník (čárkovaně) v alternativním (kolizním) rohu
+					const debugHead = document.createElement('div');
+					debugHead.className = 'head debug-head';
+					// Logika pro "alternativní" roh (v podstatě zrcadlově dle směru tisku?)
+					// Zadání: "vykreslit „debug“ obdélník hlavy čárkovaně v alternativním „kolizním rohu“ podle smer_X/smer_Y"
+					// Stávající 'head' se vykresluje kolem trysky. Tryska je v rohu objektu dle směru tisku.
+					// Profil hlavy (Xl, Xr, Yl, Yr) se aplikuje kolem trysky.
+					// Pokud chceme zobrazit "alternativní kolizní roh", znamená to, že pokud tiskneme "zleva doprava",
+					// tryska je vlevo dole (u levého předního rohu objektu) a hlava se vykresluje kolem ní.
+					// "Alternativní" by mohl znamenat druhý extrém, např. kdybychom uvažovali tisk opačným směrem?
+					// Nebo spíš vykreslit obrys hlavy v MÍSTĚ, kde by byla, kdyby tryska byla v OPAČNÉM rohu objektu?
+					// Z kontextu "kolizní roh" to chápu tak, že u některých tiskáren (nebo objektů) může vadit i druhá strana hlavy.
+					// Ale hlava je definována relativně k trysce. Takže jde o to, kam se tryska posune.
+					// Při tisku objektu se tryska pohybuje po celém půdorysu (nebo obvodu).
+					// Nejhorší případ (kolize) nastává v extrémních bodech objektu.
+					// Stávající vizualizace ukazuje hlavu v "startovním" bodě tisku (roh objektu).
+					// Debug by mohl ukazovat hlavu v "koncovém" bodě (protější roh objektu).
+					
+					// Startovní bod (tryska):
+					// nozzleX, nozzleY
+					
+					// Koncový bod (tryska v protějším rohu):
+					const endNozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
+					const endNozzleY = (smerY === 'zepredu_dozadu') ? (bottom + oy) : bottom;
+					
+					// Alternativní "kolizní" roh je ten, kde by byla hlava, kdyby tryska byla v rohu objektu, 
+					// který je "nejvíce na ráně" při tisku.
+					// Zadání: "Když je tisk zprava zepředu (zprava_doleva + zepredu_dozadu), tak v levém předním."
+					// Tisk zprava_doleva: tryska startuje vpravo (left + ox).
+					// Tisk zepredu_dozadu: tryska startuje vpředu (bottom).
+					// Startovní roh: pravý přední (vpravo dole).
+					// Hlava se vykresluje kolem startovního rohu.
+					// Kolizní (vedlejší) roh: má být "levý přední" (vlevo dole).
+					
+					// Obecně: 
+					// Tisk v ose X jde od Xstart do Xend.
+					// Startovní roh (tryska): Xstart.
+					// "Vedlejší" roh: Xend.
+					// (Tedy druhý konec hrany v ose X).
+					
+					// Pokud by šlo o Y:
+					// Tisk v ose Y jde od Ystart do Yend.
+					// Pokud se bavíme o "vedlejším" rohu, může to být ten, kam dojede osa X, než se posune Y?
+					// Sekvenční tisk objektu: tiskne se celý objekt najednou. Tryska jezdí všude.
+					// Nebezpečí kolize s tyčemi/hlavou je v tom, že hlava přesahuje půdorys objektu.
+					// Vizualizace "hlava" ukazuje obrys hlavy, když je tryska v "referenčním bodě" objektu (podle smeru tisku).
+					// Pokud je tisk zleva doprava, ref bod je vlevo. Hlava je kolem něj.
+					// Pokud hlava narazí do vedlejšího objektu vpravo, je to problém. To ukazuje standardní vizualizace (hlava kolem startu + šířka objektu).
+					// Ale co když hlava narazí do objektu vlevo (který už je vytištěný)?
+					// To se stane, když tryska dojede na pravý okraj objektu.
+					// Takže "debug hlava" by měla ukazovat polohu hlavy, když je tryska na KONCI osy X (při stejném Y startu).
+					
+					// Tisk zprava_doleva (start vpravo):
+					// Ref bod (start): vpravo.
+					// Konec osy X: vlevo.
+					// Debug hlava má být vlevo.
+					// Zadání: "Když je tisk zprava zepředu, tak v levém předním." -> Sedí. (Start vpravo vpředu, debug vlevo vpředu).
+					
+					// Tisk zleva_doprava (start vlevo):
+					// Ref bod: vlevo.
+					// Konec osy X: vpravo.
+					// Debug hlava má být vpravo.
+					
+					// Osa Y: zůstává na startu (protože zkoumáme kolizi v rámci řady / vedlejší instance).
+					// Takže Y souřadnice trysky pro debug hlavu je stejná jako pro normální hlavu (nozzleY).
+					// X souřadnice je na druhém konci.
+					
+					const debugNozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
+					const debugNozzleY = nozzleY; // Zůstáváme na stejné Y úrovni (vedlejší roh v ose X)
+
+					const dhx0 = debugNozzleX - (parseFloat(step.Xl) || 0);
+					const dhx1 = debugNozzleX + (parseFloat(step.Xr) || 0);
+					const dhy0 = debugNozzleY - (parseFloat(step.Yl) || 0);
+					const dhy1 = debugNozzleY + (parseFloat(step.Yr) || 0);
+
+					debugHead.style.left = (dhx0 / bedX * 100) + '%';
+					debugHead.style.bottom = (dhy0 / bedY * 100) + '%';
+					debugHead.style.width = ((dhx1 - dhx0) / bedX * 100) + '%';
+					debugHead.style.height = ((dhy1 - dhy0) / bedY * 100) + '%';
+					overlay.appendChild(debugHead);
 
 					const noz = document.createElement('div');
 					noz.className = 'nozzle';
@@ -873,6 +1139,29 @@ header("Expires: 0");
 			@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
 
 			.bed-wrap { display: grid; gap: 10px; }
+			
+			/* Fullscreen styles */
+			.card.is-fullscreen {
+				background: var(--bg-body);
+				border-radius: 0;
+				border: none;
+				display: flex;
+				flex-direction: column;
+				justify-content: center;
+				overflow: auto;
+			}
+			.card.is-fullscreen #tiskova_podlozka {
+				max-width: none;
+				/* Zachování poměru stran: výška bude max 85vh, šířka se dopočítá podle aspect-ratio. */
+				width: auto; 
+				height: auto;
+				max-height: 85vh;
+				/* Pokud by podložka byla moc široká, omezíme i šířku (např. 95vw) */
+				max-width: 95vw;
+				aspect-ratio: var(--bed-x) / var(--bed-y);
+				margin: auto;
+			}
+			
 			#tiskova_podlozka {
 				position: relative;
 				width: 100%;
@@ -881,8 +1170,8 @@ header("Expires: 0");
 				border-radius: 0;
 				border: 1px solid var(--border-color);
 				background:
-					linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 24px 24px,
-					linear-gradient(to top, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 24px 24px,
+					linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / var(--grid-x) var(--grid-y),
+					linear-gradient(to top, rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / var(--grid-x) var(--grid-y),
 					var(--bg-input);
 				box-shadow: var(--shadow);
 				overflow: hidden;
@@ -900,6 +1189,11 @@ header("Expires: 0");
 				position: absolute;
 				border: 2px solid rgba(253,105,37,0.85);
 				background: rgba(253,105,37,0.12);
+			}
+			#tiskova_podlozka .head.debug-head {
+				border-style: dashed;
+				background: rgba(253,105,37,0.05);
+				border-color: rgba(253,105,37,0.5);
 			}
 			#tiskova_podlozka .nozzle {
 				position: absolute;
@@ -1262,6 +1556,7 @@ if (!empty($pos)) {
 			<div class="card">
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<h2 style="margin:0; flex:1;">Vizualizace</h2>
+					<button id="fullscreen_toggle" class="small ghost" type="button" title="Celá obrazovka">Fullscreen</button>
 					<button id="toggle_head" class="small ghost" type="button">Zobrazit tiskovou hlavu</button>
 					<span id="head_controls" style="display:none; gap:6px; align-items:center;">
 						<button id="head_prev" class="small ghost" type="button" title="Předchozí instance">←</button>
@@ -1271,14 +1566,16 @@ if (!empty($pos)) {
 				<?php
 					$vizX = (isset($vysledek) && isset($vysledek["printer"]["x"]) ? (float)$vysledek["printer"]["x"] : (float)$tiskova_plocha["x"] - (float)$posun_zprava);
 					$vizY = (isset($vysledek) && isset($vysledek["printer"]["y"]) ? (float)$vysledek["printer"]["y"] : (float)$tiskova_plocha["y"]);
+					$grid_x_pct = ($vizX > 0 ? (10 / $vizX) * 100 : 10);
+					$grid_y_pct = ($vizY > 0 ? (10 / $vizY) * 100 : 10);
 				?>
 				<div style="color: var(--muted); font-size: 13px; margin: 0 0 10px;">
-					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Hover pro detaily
+					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Mřížka 10 mm • Hover pro detaily
 				</div>
 				<div id="tiskova_podlozka"
 						 data-printer='<?php echo htmlspecialchars(json_encode($vysledek["printer"] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
 						 data-head-steps='<?php echo htmlspecialchars(json_encode(($vysledek["printer"]["head_steps"] ?? []), JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
-						 style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>;">
+						 style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>; --grid-x: <?php echo number_format($grid_x_pct, 4, ".", "");?>%; --grid-y: <?php echo number_format($grid_y_pct, 4, ".", "");?>%;">
 					<div class="overlay"></div>
 <?php
 	$seq = 0;
