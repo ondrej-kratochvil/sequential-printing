@@ -711,7 +711,10 @@ header("Expires: 0");
 							set_form_state(fullState);
 							// Po načtení z hashe rovnou odešleme formulář (aby se spustil výpočet)
 							// Ale musíme počkat na překreslení DOMu
-							setTimeout(() => $("form").submit(), 100);
+							setTimeout(() => {
+								history.replaceState(null, '', window.location.pathname + window.location.search);
+								$("form").submit();
+							}, 100);
 							return true;
 						}
 					} catch (e) {
