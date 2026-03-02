@@ -290,12 +290,12 @@ header("Expires: 0");
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${escapeAttr(z)}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td class="instances_cell">
 							<div class="instances_row" style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
-								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${instancesNum}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" ${isMax ? "disabled" : "required"} />
+								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${escapeAttr(instancesNum)}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" ${isMax ? "disabled" : "required"} />
 								<label style="display:inline-flex; gap:6px; align-items:center; color: var(--muted); font-weight:700;">
 									<input class="instances_max" type="checkbox" ${isMax ? "checked" : ""} />
 									max
 								</label>
-								<input class="instances_d" type="hidden" name="objekty[${id_objektu}][instances][d]" value="${isMax ? "max" : instancesNum}" />
+								<input class="instances_d" type="hidden" name="objekty[${id_objektu}][instances][d]" value="${isMax ? "max" : escapeAttr(instancesNum)}" />
 							</div>
 						</td>
 						<td class="actions">
@@ -456,7 +456,11 @@ header("Expires: 0");
 
 				// Load hash on startup
 				if (hasHash) {
-					loadFromHash();
+					if (!loadFromHash()) {
+						$("table#objekty tr[data-row='1']").remove();
+						id_objektu = -1;
+						pridej_radek_do_tabulky();
+					}
 				}
 
 				// Fullscreen toggle
@@ -822,69 +826,9 @@ header("Expires: 0");
 					head.style.height = ((hy1 - hy0) / bedY * 100) + '%';
 					overlay.appendChild(head);
 
-					// Debug obdélník (čárkovaně) v alternativním (kolizním) rohu
+					// Debug obdélník (čárkovaně): hlava v protějším X rohu objektu (kde tryska dojede na konec osy X)
 					const debugHead = document.createElement('div');
 					debugHead.className = 'head debug-head';
-					// Logika pro "alternativní" roh (v podstatě zrcadlově dle směru tisku?)
-					// Zadání: "vykreslit „debug“ obdélník hlavy čárkovaně v alternativním „kolizním rohu“ podle smer_X/smer_Y"
-					// Stávající 'head' se vykresluje kolem trysky. Tryska je v rohu objektu dle směru tisku.
-					// Profil hlavy (Xl, Xr, Yl, Yr) se aplikuje kolem trysky.
-					// Pokud chceme zobrazit "alternativní kolizní roh", znamená to, že pokud tiskneme "zleva doprava",
-					// tryska je vlevo dole (u levého předního rohu objektu) a hlava se vykresluje kolem ní.
-					// "Alternativní" by mohl znamenat druhý extrém, např. kdybychom uvažovali tisk opačným směrem?
-					// Nebo spíš vykreslit obrys hlavy v MÍSTĚ, kde by byla, kdyby tryska byla v OPAČNÉM rohu objektu?
-					// Z kontextu "kolizní roh" to chápu tak, že u některých tiskáren (nebo objektů) může vadit i druhá strana hlavy.
-					// Ale hlava je definována relativně k trysce. Takže jde o to, kam se tryska posune.
-					// Při tisku objektu se tryska pohybuje po celém půdorysu (nebo obvodu).
-					// Nejhorší případ (kolize) nastává v extrémních bodech objektu.
-					// Stávající vizualizace ukazuje hlavu v "startovním" bodě tisku (roh objektu).
-					// Debug by mohl ukazovat hlavu v "koncovém" bodě (protější roh objektu).
-					
-					// Startovní bod (tryska):
-					// nozzleX, nozzleY
-					
-					// Alternativní "kolizní" roh je ten, kde by byla hlava, kdyby tryska byla v rohu objektu, 
-					// který je "nejvíce na ráně" při tisku.
-					// Zadání: "Když je tisk zprava zepředu (zprava_doleva + zepredu_dozadu), tak v levém předním."
-					// Tisk zprava_doleva: tryska startuje vpravo (left + ox).
-					// Tisk zepredu_dozadu: tryska startuje vpředu (bottom).
-					// Startovní roh: pravý přední (vpravo dole).
-					// Hlava se vykresluje kolem startovního rohu.
-					// Kolizní (vedlejší) roh: má být "levý přední" (vlevo dole).
-					
-					// Obecně: 
-					// Tisk v ose X jde od Xstart do Xend.
-					// Startovní roh (tryska): Xstart.
-					// "Vedlejší" roh: Xend.
-					// (Tedy druhý konec hrany v ose X).
-					
-					// Pokud by šlo o Y:
-					// Tisk v ose Y jde od Ystart do Yend.
-					// Pokud se bavíme o "vedlejším" rohu, může to být ten, kam dojede osa X, než se posune Y?
-					// Sekvenční tisk objektu: tiskne se celý objekt najednou. Tryska jezdí všude.
-					// Nebezpečí kolize s tyčemi/hlavou je v tom, že hlava přesahuje půdorys objektu.
-					// Vizualizace "hlava" ukazuje obrys hlavy, když je tryska v "referenčním bodě" objektu (podle smeru tisku).
-					// Pokud je tisk zleva doprava, ref bod je vlevo. Hlava je kolem něj.
-					// Pokud hlava narazí do vedlejšího objektu vpravo, je to problém. To ukazuje standardní vizualizace (hlava kolem startu + šířka objektu).
-					// Ale co když hlava narazí do objektu vlevo (který už je vytištěný)?
-					// To se stane, když tryska dojede na pravý okraj objektu.
-					// Takže "debug hlava" by měla ukazovat polohu hlavy, když je tryska na KONCI osy X (při stejném Y startu).
-					
-					// Tisk zprava_doleva (start vpravo):
-					// Ref bod (start): vpravo.
-					// Konec osy X: vlevo.
-					// Debug hlava má být vlevo.
-					// Zadání: "Když je tisk zprava zepředu, tak v levém předním." -> Sedí. (Start vpravo vpředu, debug vlevo vpředu).
-					
-					// Tisk zleva_doprava (start vlevo):
-					// Ref bod: vlevo.
-					// Konec osy X: vpravo.
-					// Debug hlava má být vpravo.
-					
-					// Osa Y: zůstává na startu (protože zkoumáme kolizi v rámci řady / vedlejší instance).
-					// Takže Y souřadnice trysky pro debug hlavu je stejná jako pro normální hlavu (nozzleY).
-					// X souřadnice je na druhém konci.
-					
 					const debugNozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
 					const debugNozzleY = nozzleY; // Zůstáváme na stejné Y úrovni (vedlejší roh v ose X)
 
