@@ -268,6 +268,11 @@ header("Expires: 0");
 				reindex_rows();
 			}
 
+			function escapeAttr(v) {
+				if (v == null || v === undefined) return '';
+				const s = String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+				return s;
+			}
 			function pridej_radek_do_tabulky (par_id_objektu) {
 				id_objektu++;
 				if (par_id_objektu) id_objektu = parseInt(par_id_objektu);
@@ -280,9 +285,9 @@ header("Expires: 0");
 				$("table#objekty").append(
 					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
 						<td class="cell_id">${id_objektu + 1}</td>
-						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${x}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${y}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${z}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${escapeAttr(x)}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${escapeAttr(y)}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${escapeAttr(z)}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td class="instances_cell">
 							<div class="instances_row" style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
 								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${instancesNum}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" ${isMax ? "disabled" : "required"} />
@@ -711,20 +716,6 @@ header("Expires: 0");
 					return false;
 				}
 
-				if (!loadFromHash()) {
-					// Původní logika inicializace (pokud není hash)
-					if (Array.isArray(objekty) && objekty.length == 0) {
-						// Defaultně jen 1 řádek (prázdný), pokud nejsou data
-						pridej_radek_do_tabulky(); 
-					} else {
-						$.each(objekty, function(index, value) {
-							pridej_radek_do_tabulky(index);
-						});
-					}
-				} else {
-					// Hash načten -> formulář se vyplnil v loadFromHash
-				}
-				
 				$('#download_json').on('click', function () {
 					const el = document.getElementById('json_textarea');
 					if (!el || !el.value) return setStatus('Není co stáhnout');
@@ -851,10 +842,6 @@ header("Expires: 0");
 					
 					// Startovní bod (tryska):
 					// nozzleX, nozzleY
-					
-					// Koncový bod (tryska v protějším rohu):
-					const endNozzleX = (smerX === 'zleva_doprava') ? (left + ox) : left;
-					const endNozzleY = (smerY === 'zepredu_dozadu') ? (bottom + oy) : bottom;
 					
 					// Alternativní "kolizní" roh je ten, kde by byla hlava, kdyby tryska byla v rohu objektu, 
 					// který je "nejvíce na ráně" při tisku.
