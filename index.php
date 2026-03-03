@@ -461,8 +461,11 @@ header("Expires: 0");
 				const fsBtn = document.getElementById('fullscreen_toggle');
 
 				if (bedCard && fsBtn) {
+					function getFsElement() {
+						return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+					}
 					fsBtn.addEventListener('click', function() {
-						if (!document.fullscreenElement) {
+						if (!getFsElement()) {
 							if (bedCard.requestFullscreen) bedCard.requestFullscreen();
 							else if (bedCard.webkitRequestFullscreen) bedCard.webkitRequestFullscreen();
 							else if (bedCard.msRequestFullscreen) bedCard.msRequestFullscreen();
@@ -479,7 +482,7 @@ header("Expires: 0");
 					document.addEventListener('MSFullscreenChange', handleFsChange);
 
 					function handleFsChange() {
-						const isFs = !!document.fullscreenElement;
+						const isFs = !!getFsElement();
 						if (isFs) {
 							bedCard.classList.add('is-fullscreen');
 							fsBtn.textContent = 'Zavřít Fullscreen';
