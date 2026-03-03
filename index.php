@@ -124,12 +124,6 @@ if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objek
 		if (isset($objekty[$key]["x"])) $objekty[$key]["x"] = normalize_input_2dp($objekty[$key]["x"]);
 		if (isset($objekty[$key]["y"])) $objekty[$key]["y"] = normalize_input_2dp($objekty[$key]["y"]);
 		if (isset($objekty[$key]["z"])) $objekty[$key]["z"] = normalize_input_2dp($objekty[$key]["z"]);
-
-		// Max semantics: explicitní kontrola
-		// Pokud je "instances[d]" string "max", je to max.
-		// Pokud je číslo, je to číslo.
-		// Pokud chybí, fallback na 1 (nebo max?). Default je nyní max, pokud je zaškrtnuto v UI.
-		// Ale v URL: objekty[0][instances][d]=max vs =5
 	}
 }
 
@@ -309,8 +303,6 @@ header("Expires: 0");
 						<td class="cell_result">${vysledny_pocet_instanci}</td>
 					</tr>`
 				);
-				// Max semantics: zajistit, že pokud je zaškrtnuto MAX, d = "max". Pokud ne, d je číslo. 
-				// To řeší input handler, ale při inicializaci to musí být OK.
 				reindex_rows();
 			}
 
@@ -711,8 +703,9 @@ header("Expires: 0");
 							set_form_state(fullState);
 							// Po načtení z hashe rovnou odešleme formulář (aby se spustil výpočet)
 							// Ale musíme počkat na překreslení DOMu
+							// Hash neodstraňujeme před submit – pokud validace selže, uživatel musí mít
+							// možnost obnovit stránku a zkusit znovu (hash zůstane v URL)
 							setTimeout(() => {
-								history.replaceState(null, '', window.location.pathname + window.location.search);
 								$("form").submit();
 							}, 100);
 							return true;
