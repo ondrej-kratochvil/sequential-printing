@@ -583,13 +583,13 @@ header("Expires: 0");
 					validateRow($(this).closest('tr'));
 				});
 				$("form").on('submit', function (e) {
+					$(this).find("input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']").each(function(){
+						$(this).val(roundTo2($(this).val()));
+					});
+
 					let allValid = true;
 					$("table#objekty tr[data-row='1']").each(function(){
 						if (!validateRow($(this))) allValid = false;
-					});
-					
-					$(this).find("input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']").each(function(){
-						$(this).val(roundTo2($(this).val()));
 					});
 
 					if (!allValid) {
