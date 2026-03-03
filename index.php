@@ -589,6 +589,10 @@ header("Expires: 0");
 						alert('Opravte prosím chyby ve formuláři (červeně orámované).');
 						return false;
 					}
+					// Odstranit hash z historie před navigací – zabrání back-button trapu
+					if (window.location.hash && window.location.hash.startsWith('#s=')) {
+						history.replaceState(null, '', window.location.pathname + window.location.search);
+					}
 				});
 
 				$('#export_input').on('click', function () {
