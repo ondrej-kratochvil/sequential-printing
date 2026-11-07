@@ -46,6 +46,8 @@ class SequentialPrintCalculator
         'rozprostrit_instance_v_ose_x' => true,
         'rozprostrit_instance_v_ose_y' => true,
         'rozprostreni_y_rezim' => self::ROZPROSTRENI_Y_PO_INSTANCICH,
+        // Rotace o 90° kolem Z povolená všem objektům (jinak jen objektům s `rotace`). Výchozí vypnuto kvůli kompatibilitě.
+        'povolit_rotaci_vsem' => false,
     ];
 
     /** @var array */
@@ -159,10 +161,119 @@ class SequentialPrintCalculator
      * Vezme se první varianta bez kolize, která udrží původní počet instancí bez vynechání,
      * jinak varianta bez kolize s nejvíce instancemi.
      *
+     * Rotace o 90° (objekt `rotace` nebo nastavení `povolit_rotaci_vsem`): totéž se spočítá i pro
+     * varianty s otočenými objekty (x a y zaměněné) a vezme se nejlepší (viz jeLepsiVarianta()).
+     * Výsledek má navíc `otocene_objekty` a u pozic `otoceno`.
+     *
      * @param array $objekty Input objekty ve tvaru jako z GET (včetně instances[d]).
      * @return array Výsledek výpočtu (pozice, metadata, aktualizované objekty, kontrola_kolizi).
      */
     public function calculate(array $objekty): array
+    {
+        // `otoceno` nastavuje jen výpočet (varianta s otočeným objektem), ze vstupu se nepřebírá.
+        foreach ($objekty as $id => $objekt) {
+            if (is_array($objekt)) unset($objekty[$id]['otoceno']);
+        }
+
+        $kandidati = $this->objektySPovolenouRotaci($objekty);
+        $zakladni = $this->vypocitejSKontrolou($objekty);
+        $zakladni['otocene_objekty'] = [];
+        if (empty($kandidati) || $this->vesloSeVse($zakladni)) return $zakladni;
+
+        // Rotace o 90° (ROADMAP B2): varianty s otočenými objekty (záměna x a y), vybere se nejlepší.
+        // 1) nic neotočeno, 2) všechny povolené otočené, 3) greedy: od lepší z 1/2 postupně u každého
+        // povoleného objektu (v pořadí vstupu) zkusí opačnou orientaci a nechá ji, když je výsledek lepší.
+        // Výpočtů je nejvýš 2 + počet povolených objektů (ne všechny kombinace).
+        $spocitane = [json_encode([]) => $zakladni];
+        $spocitej = function (array $otocene) use ($objekty, &$spocitane): array {
+            sort($otocene);
+            $klic = json_encode($otocene);
+            if (!isset($spocitane[$klic])) {
+                $spocitane[$klic] = $this->vypocitejSOtocenim($objekty, $otocene);
+            }
+            return $spocitane[$klic];
+        };
+
+        $nejlepsi = $zakladni;
+        $vsechny = $spocitej($kandidati);
+        if (self::jeLepsiVarianta($vsechny, $nejlepsi)) $nejlepsi = $vsechny;
+        foreach ($kandidati as $id) {
+            $otocene = $nejlepsi['otocene_objekty'];
+            $otocene = in_array($id, $otocene, true) ? array_values(array_diff($otocene, [$id])) : array_merge($otocene, [$id]);
+            $varianta = $spocitej($otocene);
+            if (self::jeLepsiVarianta($varianta, $nejlepsi)) $nejlepsi = $varianta;
+        }
+        return $nejlepsi;
+    }
+
+    /**
+     * Klíče objektů, u kterých má smysl zkoušet rotaci o 90°: povolená rotace (objekt `rotace`
+     * nebo nastavení `povolit_rotaci_vsem`) a různé rozměry x a y (u čtvercového půdorysu se nic nezmění).
+     */
+    private function objektySPovolenouRotaci(array $objekty): array
+    {
+        $kandidati = [];
+        foreach ($objekty as $id => $objekt) {
+            if (!is_array($objekt)) continue;
+            $povoleno = $this->options['povolit_rotaci_vsem'] || self::jePovolenaRotace($objekt['rotace'] ?? null);
+            if (!$povoleno) continue;
+            $x = round($this->toFloat($objekt['x'] ?? null), 2);
+            $y = round($this->toFloat($objekt['y'] ?? null), 2);
+            if ($x <= 0 || $y <= 0 || $x == $y) continue;
+            $kandidati[] = $id;
+        }
+        return $kandidati;
+    }
+
+    /** Hodnota volby `rotace` (bool, 1/0, "1", "true", "on", "ano"). */
+    public static function jePovolenaRotace($hodnota): bool
+    {
+        if (is_bool($hodnota)) return $hodnota;
+        if (is_int($hodnota) || is_float($hodnota)) return $hodnota != 0;
+        if (!is_string($hodnota)) return false;
+        return in_array(strtolower(trim($hodnota)), ['1', 'true', 'on', 'ano', 'yes'], true);
+    }
+
+    /** Vešel se požadovaný počet všech objektů bez úprav kontrolou kolizí? Pak rotace nemůže nic zlepšit. */
+    private function vesloSeVse(array $vysledek): bool
+    {
+        if (!empty($this->pozadovanoMax) || !empty($this->vyrazeneObjekty) || !empty($vysledek['limit'])) return false;
+        return !empty($vysledek['kontrola_kolizi']['ok']) && empty($vysledek['kontrola_kolizi']['upraveno']);
+    }
+
+    /** Výpočet s otočenými objekty (záměna x a y); výsledek nese `otocene_objekty`. */
+    private function vypocitejSOtocenim(array $objekty, array $otocene): array
+    {
+        foreach ($otocene as $id) {
+            $x = $objekty[$id]['x'] ?? null;
+            $objekty[$id]['x'] = $objekty[$id]['y'] ?? null;
+            $objekty[$id]['y'] = $x;
+            $objekty[$id]['otoceno'] = true;
+        }
+        $vysledek = $this->vypocitejSKontrolou($objekty);
+        sort($otocene);
+        $vysledek['otocene_objekty'] = array_values($otocene);
+        return $vysledek;
+    }
+
+    /**
+     * Pořadí variant rotace: bez kolize > víc instancí > bez úprav kontrolou kolizí > méně kroků úprav
+     * > méně otočených objektů (při shodě zůstane objekt neotočený). Při úplné shodě vyhrává dřívější varianta.
+     */
+    private static function jeLepsiVarianta(array $a, array $b): bool
+    {
+        $okA = !empty($a['kontrola_kolizi']['ok']);
+        $okB = !empty($b['kontrola_kolizi']['ok']);
+        if ($okA !== $okB) return $okA;
+        if ($a['pocet_instanci'] !== $b['pocet_instanci']) return $a['pocet_instanci'] > $b['pocet_instanci'];
+        $upravA = empty($a['kontrola_kolizi']['upraveno']) ? 0 : 1 + count($a['kontrola_kolizi']['postup'] ?? []);
+        $upravB = empty($b['kontrola_kolizi']['upraveno']) ? 0 : 1 + count($b['kontrola_kolizi']['postup'] ?? []);
+        if ($upravA !== $upravB) return $upravA < $upravB;
+        return count($a['otocene_objekty']) < count($b['otocene_objekty']);
+    }
+
+    /** Jeden výpočet rozložení + kontrola kolizí v dané orientaci objektů (popis viz calculate()). */
+    private function vypocitejSKontrolou(array $objekty): array
     {
         $nastaveniUzivatele = $this->options;
 
@@ -659,6 +770,9 @@ class SequentialPrintCalculator
                 ],
             ];
             if ($nazev !== '') $out[$id]['nazev'] = $nazev;
+            if (self::jePovolenaRotace($objekt['rotace'] ?? null)) $out[$id]['rotace'] = true;
+            // Objekt otočený o 90° výpočtem (x a y už jsou zaměněné), viz calculate().
+            if (!empty($objekt['otoceno'])) $out[$id]['otoceno'] = true;
         }
         return $out;
     }
@@ -948,6 +1062,8 @@ class SequentialPrintCalculator
         if (isset($this->objekty[$idObjektu]['nazev'])) {
             $this->poziceDetail[count($this->poziceDetail) - 1]['nazev'] = $this->objekty[$idObjektu]['nazev'];
         }
+        // Otočený kus je nutné v sliceru otočit o 90° kolem Z (rozměry x/y jsou zaměněné).
+        $this->poziceDetail[count($this->poziceDetail) - 1]['otoceno'] = !empty($this->objekty[$idObjektu]['otoceno']);
     }
 
     private function prepocitejSRozprostrenimPoCeleTiskovePodlozce(int $parPocetInstanci, int $parPocetRad): void
@@ -1141,6 +1257,7 @@ class SequentialPrintCalculator
             'printer' => $vysledek['printer'],
             'kontrola_kolizi' => isset($vysledek['kontrola_kolizi']) ? $vysledek['kontrola_kolizi'] : null,
             'limit' => isset($vysledek['limit']) ? $vysledek['limit'] : [],
+            'otocene_objekty' => isset($vysledek['otocene_objekty']) ? $vysledek['otocene_objekty'] : [],
         ];
     }
 
@@ -1232,7 +1349,8 @@ class SequentialPrintCalculator
                 }
             }
 
-            $oznaceni = 'Objekt ' . $this->cisloObjektu($id) .($nazev !== '' ? ' (' . $nazev . ')' : '');
+            $oznaceni = 'Objekt ' . $this->cisloObjektu($id) .($nazev !== '' ? ' (' . $nazev . ')' : '')
+                . (!empty($this->objekty[$id]['otoceno']) ? ' otočený o 90°' : '');
             $pocty = ($pozadovano === 'max') ? 'nevešel se ani jeden kus' : 'umístěno ' . $umisteno . ' z ' . $pozadovano;
             $polozka = ['objekt' => $id];
             if ($nazev !== '') $polozka['nazev'] = $nazev;

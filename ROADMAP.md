@@ -49,9 +49,7 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
   - ~~algoritmus má zajistit, že kolize nevznikne (a když hrozí, musí změnit rozmístění nebo snížit počet)~~ hotovo: při kolizi bezpečnější varianty výpočtu, posun kusu v ose Y, v krajním případě vynechání kusu (postup v README).
 
 ### B2. Více průchodů (optimalizace)
-- **Rotace o 90° jako druhý průchod** *(ANO – 6.a)*:
-  - povolit per objekt (zap/vyp),
-  - vybrat nejlepší výsledek (max počet instancí, sekundárně preference rozprostření).
+- ~~**Rotace o 90° jako druhý průchod** *(ANO – 6.a)*: povolit per objekt (zap/vyp), vybrat nejlepší výsledek (max počet instancí, sekundárně preference rozprostření)~~ hotovo: volba `rotace` u objektu + `povolit_rotaci_vsem`, varianty nic / vše / greedy po objektech, `pozice[].otoceno` a `otocene_objekty`, UI (checkbox, šrafovaný kus ve vizualizaci, sloupec v pozicích, sdílený odkaz, export/import), GET, CLI, API, testy.
 
 ### B2b. Volba rozprostření v ose Y
 - ~~**`rozprostreni_y_rezim`**: `po_instancich` (výchozí) nebo `po_radach` (celá řada o stejný krok, místo rozdělené mezi řady)~~ hotovo: UI přepínač, GET, CLI/API `options`, testy bez kolize v obou režimech.

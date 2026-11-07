@@ -513,6 +513,95 @@ if (PHP_SAPI === 'cli') {
     assertTrue(strpos($kolize["popis"], "kontrola kolizí vynechala 1 kus") !== false, "Limit: popis vynechaného kusu");
     ok("Důvod limitu: objekt, požadováno/umístěno a důvod (místo v Y, přednost objektu, rozměr, hlava, tyče, kolize).");
 
+    // --- Rotace o 90° (ROADMAP B2) ---
+    $bezKolize = function (array $res, string $label): void {
+        assertSame(true, $res["kontrola_kolizi"]["ok"], "{$label}: kontrola_kolizi.ok");
+        $nezavisle = (new CollisionChecker($res["printer"]))->check(CollisionChecker::kusyZVysledku($res["pozice"], $res["objekty"]));
+        assertSame(true, $nezavisle["ok"], "{$label}: nezávislá kontrola výstupu");
+    };
+    $otocenePozice = function (array $res): array {
+        return array_values(array_unique(array_map(function ($p) { return $p["otoceno"]; }, $res["pozice"])));
+    };
+
+    // a) Rotace přidá instance: dlouhý úzký vysoký kus (přes vodicí tyče se hloubka v Y nevyplatí).
+    $lista = ["x" => 15, "y" => 100, "z" => 50, "instances" => ["d" => "max"], "nazev" => "lišta"];
+    $bez = (new SequentialPrintCalculator([], []))->calculate([$lista]);
+    $res = (new SequentialPrintCalculator([], []))->calculate([$lista + ["rotace" => true]]);
+    assertSame(1, $bez["pocet_instanci"], "Rotace: bez otočení 1 kus");
+    assertSame(6, $res["pocet_instanci"], "Rotace: otočená lišta 6 kusů");
+    assertSame([0], $res["otocene_objekty"], "Rotace: otocene_objekty");
+    assertSame([true], $otocenePozice($res), "Rotace: všechny pozice otoceno = true");
+    assertSame([100.0, 15.0, true, true], [$res["objekty"][0]["x"], $res["objekty"][0]["y"], $res["objekty"][0]["rotace"], $res["objekty"][0]["otoceno"]], "Rotace: objekty mají rozměry na podložce (x a y zaměněné)");
+    assertSame([0], SequentialPrintCalculator::vystupApi($res)["otocene_objekty"], "Rotace: otocene_objekty ve výstupu API");
+    $bezKolize($res, "Rotace pomůže");
+    // Globální přepínač: totéž bez volby u objektu.
+    $vsem = (new SequentialPrintCalculator([], ["povolit_rotaci_vsem" => true]))->calculate([$lista]);
+    assertSame([6, [0]], [$vsem["pocet_instanci"], $vsem["otocene_objekty"]], "Rotace: povolit_rotaci_vsem");
+    // Přesný počet: limit u otočeného objektu to řekne.
+    $res = (new SequentialPrintCalculator([], []))->calculate([["x" => 15, "y" => 100, "z" => 50, "instances" => ["d" => 10], "rotace" => true]]);
+    assertTrue(strpos($res["limit"][0]["popis"] ?? "", "Objekt 1 otočený o 90°: umístěno 6 z 10") === 0, "Rotace: popis limitu u otočeného objektu");
+
+    // b) Rotace nepomůže: nízký úzký kus se víc vejde neotočený (8 proti 7) => zůstane neotočený, stejně jako bez volby.
+    $uzky = ["x" => 10, "y" => 100, "z" => 10, "instances" => ["d" => "max"]];
+    $bez = (new SequentialPrintCalculator([], []))->calculate([$uzky]);
+    $res = (new SequentialPrintCalculator([], []))->calculate([$uzky + ["rotace" => true]]);
+    assertSame([8, 8], [$bez["pocet_instanci"], $res["pocet_instanci"]], "Rotace nepomůže: počet");
+    assertSame([[], [false]], [$res["otocene_objekty"], $otocenePozice($res)], "Rotace nepomůže: nic otočeno");
+    assertSame($bez["pozice"], $res["pozice"], "Rotace nepomůže: stejné pozice jako bez rotace");
+    $bezKolize($res, "Rotace nepomůže");
+    // Vešlo se vše (rotace nemůže nic zlepšit) a čtvercový půdorys: beze změny.
+    $res = (new SequentialPrintCalculator([], ["povolit_rotaci_vsem" => true]))->calculate([["x" => 20, "y" => 40, "z" => 10, "instances" => ["d" => 2]], ["x" => 30, "y" => 30, "z" => 10, "instances" => ["d" => 2]]]);
+    assertSame([4, []], [$res["pocet_instanci"], $res["otocene_objekty"]], "Rotace: vše se vešlo = nic neotočeno");
+
+    // c) Více objektů: otáčí se jen objekty s povolenou rotací; otoceno ze vstupu se nepřebírá.
+    $res = (new SequentialPrintCalculator([], []))->calculate([$lista + ["rotace" => "1"], ["x" => 15, "y" => 90, "z" => 40, "instances" => ["d" => 3], "otoceno" => true]]);
+    assertSame([0], $res["otocene_objekty"], "Rotace: jen povolený objekt");
+    foreach ($res["pozice"] as $p) assertSame($p["objekt"] === 0, $p["otoceno"], "Rotace: otoceno u pozice objektu {$p["objekt"]}");
+    assertTrue(empty($res["objekty"][1]["otoceno"]) && $res["objekty"][1]["x"] === 15.0, "Rotace: otoceno ze vstupu se ignoruje");
+    $bezKolize($res, "Rotace u jednoho ze dvou objektů");
+
+    // d) Regrese: bez rotace stejný výsledek (rotace vypnutá explicitně = výchozí), s rotací všem nikdy méně kusů a bez kolize.
+    $pocetScenaru = 0;
+    foreach ($tiskarny as $nazevTiskarny => [$tiskarna]) {
+        foreach ($sadyObjektu + ["lišta" => [$lista]] as $nazevSady => $sada) {
+            $label = "Rotace {$nazevTiskarny} / {$nazevSady}";
+            $vychozi = (new SequentialPrintCalculator($tiskarna, []))->calculate($sada);
+            $vypnuto = (new SequentialPrintCalculator($tiskarna, ["povolit_rotaci_vsem" => false]))
+                ->calculate(array_map(function ($o) { return $o + ["rotace" => false]; }, $sada));
+            assertSame($vychozi["pozice"], $vypnuto["pozice"], "{$label}: rotace vypnutá = stejné pozice");
+            assertSame([[], [false]], [$vychozi["otocene_objekty"], $otocenePozice($vychozi)], "{$label}: bez rotace nic otočeno");
+            $sRotaci = (new SequentialPrintCalculator($tiskarna, ["povolit_rotaci_vsem" => true]))->calculate($sada);
+            assertTrue($sRotaci["pocet_instanci"] >= $vychozi["pocet_instanci"], "{$label}: s rotací ne méně kusů");
+            $bezKolize($sRotaci, $label);
+            $pocetScenaru++;
+        }
+    }
+    ok("Rotace o 90°: přidá kusy u dlouhého úzkého objektu, jinak zůstane neotočeno, vždy bez kolize ({$pocetScenaru}× regrese).");
+
+    // e) CLI a UI.
+    $cli = $spustCli('{"objekty":[{"x":179.5,"y":40,"z":10,"rotace":true}]}');
+    assertSame(0, $cli["code"], "CLI rotace: objekt, který se vejde jen otočený (stderr: {$cli["err"]})");
+    assertSame([true, [0]], [$cli["json"]["pozice"][0]["otoceno"] ?? null, $cli["json"]["otocene_objekty"] ?? null], "CLI rotace: otoceno ve výstupu");
+    assertSame(1, $spustCli('{"objekty":[{"x":179.5,"y":40,"z":10}]}')["code"], "CLI bez rotace: větší než podložka");
+    assertSame(1, $spustCli('{"objekty":[{"x":10,"y":40,"z":10,"rotace":"ano"}]}')["code"], "CLI: rotace musí být true/false");
+    $cli = $spustCli(json_encode(["objekty" => [$lista], "options" => ["povolit_rotaci_vsem" => true]]));
+    assertSame([0, 6], [$cli["code"], $cli["json"]["pocet_instanci"]], "CLI: options.povolit_rotaci_vsem");
+
+    $get = ["objekty" => [["x" => "15", "y" => "100", "z" => "50", "instances" => ["d" => "max"], "rotace" => "1", "nazev" => "lišta"]]];
+    $html = $spustIndex($get);
+    assertTrue(stripos($html, "Warning") === false && stripos($html, "Notice") === false && stripos($html, "Deprecated") === false, "index.php rotace: HTML bez warningů");
+    assertTrue(strpos($html, 'class="instance otocene" data-otoceno="1"') !== false, "index.php rotace: otočený kus ve vizualizaci");
+    assertTrue(strpos($html, 'id="otocene_objekty"') !== false && strpos($html, 'objekt 1 (lišta)') !== false, "index.php rotace: hláška o otočených kusech");
+    assertTrue(strpos($html, '↻ 90°') !== false, "index.php rotace: sloupec Otočeno v tabulce pozic");
+    assertTrue(strpos($html, '"rotace":true') !== false, "index.php rotace: volba v JS datech pro tabulku objektů");
+    $json = json_decode($spustIndex($get + ["format" => "json"]), true);
+    assertSame([0], $json["otocene_objekty"] ?? null, "index.php JSON: otocene_objekty");
+    assertSame([true, true, "15"], [$json["objekty"][0]["rotace"] ?? null, $json["objekty"][0]["otoceno"] ?? null, $json["objekty"][0]["x"]], "index.php JSON: objekty s volbou rotace, otoceno a původními rozměry");
+    assertSame(true, $json["pozice"][0]["otoceno"], "index.php JSON: pozice otoceno");
+    $json = json_decode($spustIndex(["povolit_rotaci_vsem" => "1", "format" => "json", "objekty" => [["x" => "15", "y" => "100", "z" => "50", "instances" => ["d" => "max"]]]]), true);
+    assertSame(6, $json["pocet_instanci"], "index.php: povolit_rotaci_vsem z GET");
+    ok("Rotace v CLI (objekty[].rotace, options.povolit_rotaci_vsem) a v UI (vizualizace, tabulka pozic, JSON).");
+
     ok("ALL OK");
     exit(0);
 }
