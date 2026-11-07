@@ -52,12 +52,18 @@ if (empty($objekty)) {
     $jsonError(400, "Chybí pole 'objekty'.");
 }
 
-// Chybějící hodnoty tiskárny a nastavení doplní kalkulátor z VYCHOZI_TISKARNA / VYCHOZI_NASTAVENI
+// Chybějící hodnoty tiskárny a nastavení doplní předvolba (výchozí Prusa MINI) / VYCHOZI_NASTAVENI
 // (stejné výchozí hodnoty jako UI a CLI).
+// Předvolba tiskárny (config/tiskarny.json): "tiskarna": "<id>" nebo "printer": "<id>"; objekt "printer" ji přepíše.
+$idTiskarny = (isset($input["tiskarna"]) && $input["tiskarna"] !== "") ? $input["tiskarna"] : null;
+if (isset($input["printer"]) && is_string($input["printer"]) && $input["printer"] !== "") $idTiskarny = $input["printer"];
 $printer = (isset($input["printer"]) && is_array($input["printer"])) ? $input["printer"] : [];
 $options = (isset($input["options"]) && is_array($input["options"])) ? $input["options"] : [];
+if ($idTiskarny !== null && !PredvolbyTiskaren::existuje($idTiskarny)) {
+	$jsonError(400, "Neznámá tiskárna '" . (is_scalar($idTiskarny) ? (string)$idTiskarny : "?") . "'. Dostupné předvolby: " . implode(", ", array_keys(PredvolbyTiskaren::seznam())) . ".");
+}
 
-$calculator = new SequentialPrintCalculator($printer, $options);
+$calculator = new SequentialPrintCalculator(PredvolbyTiskaren::sestav($idTiskarny, $printer), $options);
 $vysledek = $calculator->calculate($objekty);
 
 echo json_encode(SequentialPrintCalculator::vystupApi($vysledek), JSON_UNESCAPED_UNICODE);

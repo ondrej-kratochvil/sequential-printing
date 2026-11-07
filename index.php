@@ -87,10 +87,16 @@ function array_msort($array, $cols) {
 	return $ret;
 }
 
-/* Nastavení tiskárny (výchozí – později půjde do DB) */
+/* Nastavení tiskárny: předvolba z config/tiskarny.json (GET tiskarna, bez parametru výchozí Prusa MINI) */
 
-// Jediný zdroj výchozích hodnot: SequentialPrintCalculator::VYCHOZI_TISKARNA (Prusa MINI).
-$vychozi_tiskarna = SequentialPrintCalculator::VYCHOZI_TISKARNA;
+$predvolby_tiskaren = PredvolbyTiskaren::seznam();
+$tiskarna_id = PredvolbyTiskaren::vychoziId();
+$chyba_tiskarny = "";
+if (isset($_GET["tiskarna"]) && $_GET["tiskarna"] !== "") {
+	if (PredvolbyTiskaren::existuje($_GET["tiskarna"])) $tiskarna_id = (string)$_GET["tiskarna"];
+	else $chyba_tiskarny = "Neznámá tiskárna „".(is_string($_GET["tiskarna"]) ? $_GET["tiskarna"] : "?")."“. Dostupné předvolby: ".implode(", ", array_keys($predvolby_tiskaren)).". Výpočet neproběhl.";
+}
+$vychozi_tiskarna = PredvolbyTiskaren::parametry($tiskarna_id);
 $tiskova_plocha = [
 	"x" => $vychozi_tiskarna["x"],
 	"y" => $vychozi_tiskarna["y"],
@@ -119,6 +125,11 @@ $rozprostreni_y_rezim = (isset($_GET["rozprostreni_y_rezim"]) && in_array($_GET[
 	: SequentialPrintCalculator::VYCHOZI_NASTAVENI["rozprostreni_y_rezim"];
 // Rotace o 90° kolem Z pro všechny objekty (jinak jen objekty se zaškrtnutou rotací). Výchozí vypnuto.
 $povolit_rotaci_vsem = (isset($_GET["povolit_rotaci_vsem"]) && $_GET["povolit_rotaci_vsem"]);
+// Více podložek: co se nevejde na jednu podložku, pokračuje na další (nejvýš max_podlozek). Výchozí vypnuto.
+$vice_podlozek = (isset($_GET["vice_podlozek"]) && $_GET["vice_podlozek"]);
+$max_podlozek = (isset($_GET["max_podlozek"]) && is_numeric($_GET["max_podlozek"]))
+	? max(1, min(SequentialPrintCalculator::MAXIMALNI_POCET_PODLOZEK, (int)$_GET["max_podlozek"]))
+	: SequentialPrintCalculator::VYCHOZI_NASTAVENI["max_podlozek"];
 
 /* Objekty (z UI/GET) */
 $objekty = [];
@@ -150,29 +161,22 @@ $datova_veta_json = "[]";
 $kontrola_kolizi = null;
 $limit = [];
 $otocene_objekty = [];
+$podlozky = [];
+$objekty_podlozek = [];
 
-if (!empty($objekty)) {
+if (!empty($objekty) && $chyba_tiskarny === "") {
 	$objekty_input = $objekty; // zachovat pro formulář (aby se hodnoty po odeslání neměnily)
 
 	$calculator = new SequentialPrintCalculator(
-		[
-			"x" => $tiskova_plocha["x"],
-			"y" => $tiskova_plocha["y"],
-			"z" => $tiskova_plocha["z"],
-			"posun_zprava" => $posun_zprava,
-			"Xr" => $Xr,
-			"Xl" => $Xl,
-			"Yr" => $Yr,
-			"Yl" => $Yl,
-			"vodici_tyce_Z" => $vodici_tyce_Z,
-			"vodici_tyce_Y" => $vodici_tyce_Y
-		],
+		$vychozi_tiskarna,
 		[
 			"rozprostrit_instance_po_cele_podlozce" => $rozprostrit_instance_po_cele_podlozce,
 			"rozprostrit_instance_v_ose_x" => $rozprostrit_instance_v_ose_x,
 			"rozprostrit_instance_v_ose_y" => $rozprostrit_instance_v_ose_y,
 			"rozprostreni_y_rezim" => $rozprostreni_y_rezim,
-			"povolit_rotaci_vsem" => $povolit_rotaci_vsem
+			"povolit_rotaci_vsem" => $povolit_rotaci_vsem,
+			"vice_podlozek" => $vice_podlozek,
+			"max_podlozek" => $max_podlozek
 		]
 	);
 
@@ -211,8 +215,17 @@ if (!empty($objekty)) {
 	$Xcount_max = $vysledek["Xcount_max"];
 	$kontrola_kolizi = $vysledek["kontrola_kolizi"] ?? null;
 	$limit = $vysledek["limit"] ?? [];
+	$podlozky = $vysledek["podlozky"] ?? [];
+	// Rozměry objektů na každé podložce (u více podložek se rotace volí po podložkách).
+	$objekty_podlozek = $vysledek["objekty_podlozek"] ?? [];
+	// Více podložek: positions ([instance, X, Y]) neříká, na které podložce kus je - JSON v UI pak ukazuje pozice (s podlozka).
+	if ($pocet_podlozek > 1) $datova_veta_json = json_encode($pozice, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE);
 
-	if ($pocet_instanci > 0) {
+	if ($pocet_instanci > 0 && $pocet_podlozek > 1) {
+		$po_podlozkach = [];
+		foreach ($podlozky as $souhrn_podlozky) $po_podlozkach[] = 'podložka '.$souhrn_podlozky["podlozka"].': '.$souhrn_podlozky["pocet_instanci"];
+		$text_nad_tabulkou = 'Na <strong>'.$pocet_podlozek.'</strong> '.sklonovani($pocet_podlozek, "podložku", "podložky", "podložek").' se '.sklonovani($pocet_instanci, "vleze", "vlezou", "vleze").' celkem <strong>'.$pocet_instanci.'</strong> '.sklonovani($pocet_instanci, "instance", "instance", "instancí").' ('.implode(", ", $po_podlozkach).').';
+	} elseif ($pocet_instanci > 0) {
 		$Xcount_string = ($Xcount_min == $Xcount_max ? $Xcount_max : ($Xcount_min."&ndash;".$Xcount_max));
 		$text_nad_tabulkou = 'Na podložku se '.sklonovani($pocet_instanci, "vleze", "vlezou", "vleze").' <strong>'.$pocet_instanci.'</strong> '.sklonovani($pocet_instanci, "instance", "instance", "instancí").' ('.$Xcount_string.' '.sklonovani($Xcount_max, "instance", "instance", "instancí").' '.sklonovani($pocet_rad, "v", "ve", "v").' '.$pocet_rad.' '.sklonovani($pocet_rad, "řadě", "řadách", "řadách").').';
 	} elseif (!empty($limit)) {
@@ -223,6 +236,11 @@ if (!empty($objekty)) {
 /* JSON výstup (pro API / integrace) */
 if (isset($_GET["format"]) && $_GET["format"] === "json") {
 	header("Content-Type: application/json; charset=UTF-8");
+	if ($chyba_tiskarny !== "") {
+		if (PHP_SAPI !== "cli") http_response_code(400);
+		echo json_encode(["error" => $chyba_tiskarny], JSON_UNESCAPED_UNICODE);
+		exit;
+	}
 	$printer_json = [
 		"x" => $tiskova_plocha["x"],
 		"y" => $tiskova_plocha["y"],
@@ -250,7 +268,9 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 			"printer" => $printer_json,
 			"kontrola_kolizi" => $kontrola_kolizi,
 			"limit" => $limit,
-			"otocene_objekty" => $otocene_objekty
+			"otocene_objekty" => $otocene_objekty,
+			"podlozky" => $podlozky,
+			"tiskarna" => $tiskarna_id
 		],
 		JSON_UNESCAPED_UNICODE
 	);
@@ -356,6 +376,9 @@ header("Expires: 0");
 						rozprostrit_instance_v_ose_y: $("#rozprostrit_instance_v_ose_y").prop("checked") ? 1 : 0,
 						rozprostreni_y_rezim: $("input[name='rozprostreni_y_rezim']:checked").val() || "po_instancich",
 						povolit_rotaci_vsem: $("#povolit_rotaci_vsem").prop("checked") ? 1 : 0,
+						tiskarna: $("#tiskarna").val() || "",
+						vice_podlozek: $("#vice_podlozek").prop("checked") ? 1 : 0,
+						max_podlozek: parseInt($("#max_podlozek").val(), 10) || <?php echo SequentialPrintCalculator::MAXIMALNI_POCET_PODLOZEK;?>,
 						rozprostrit_instance_po_cele_podlozce: $("#rozprostrit_instance_po_cele_podlozce").prop("checked") ? 1 : 0,
 						umistit_na_stred_v_ose_x: $("#umistit_na_stred_v_ose_x").prop("checked") ? 1 : 0,
 						umistit_na_stred_v_ose_y: $("#umistit_na_stred_v_ose_y").prop("checked") ? 1 : 0
@@ -393,6 +416,12 @@ header("Expires: 0");
 				$("#rozprostrit_instance_v_ose_y").prop("checked", !!n.rozprostrit_instance_v_ose_y);
 				$("#rozprostreni_y_rezim_" + (n.rozprostreni_y_rezim === "po_radach" ? "po_radach" : "po_instancich")).prop("checked", true);
 				$("#povolit_rotaci_vsem").prop("checked", !!n.povolit_rotaci_vsem);
+				// Tiskárna: jen existující předvolba, jinak výchozí (starý export / neznámé id).
+				const $tiskarna = $("#tiskarna");
+				const znamaTiskarna = $tiskarna.find("option").filter(function () { return this.value === n.tiskarna; }).length > 0;
+				$tiskarna.val(znamaTiskarna ? n.tiskarna : $tiskarna.attr("data-vychozi"));
+				$("#vice_podlozek").prop("checked", !!n.vice_podlozek);
+				$("#max_podlozek").val(parseInt(n.max_podlozek, 10) || <?php echo SequentialPrintCalculator::MAXIMALNI_POCET_PODLOZEK;?>);
 				$("#rozprostrit_instance_po_cele_podlozce").prop("checked", !!n.rozprostrit_instance_po_cele_podlozce);
 				$("#umistit_na_stred_v_ose_x").prop("checked", !!n.umistit_na_stred_v_ose_x);
 				$("#umistit_na_stred_v_ose_y").prop("checked", !!n.umistit_na_stred_v_ose_y);
@@ -707,7 +736,8 @@ header("Expires: 0");
 						// Minimalizace JSONu pro URL
 						// o: [x, y, z, d, název?, rotace?] (název jen když je vyplněný nebo je povolená rotace - staré odkazy mají 4 prvky;
 						// rotace = 1 jen když je povolená), n[5]: 1 = rozprostření v ose Y po řadách (staré odkazy ho nemají = po instancích),
-						// n[6]: 1 = povolit rotaci všem objektům.
+						// n[6]: 1 = povolit rotaci všem objektům, n[7]: 1 = více podložek, n[8]: max. počet podložek,
+						// t: id předvolby tiskárny (jen když není výchozí).
 						const minState = {
 							o: state.objekty.map(o => {
 								const arr = [o.x, o.y, o.z, (o.instances && o.instances.d === "max") ? "m" : o.instances.d];
@@ -722,9 +752,12 @@ header("Expires: 0");
 								state.nastaveni.umistit_na_stred_v_ose_x ? 1 : 0,
 								state.nastaveni.umistit_na_stred_v_ose_y ? 1 : 0,
 								state.nastaveni.rozprostreni_y_rezim === "po_radach" ? 1 : 0,
-								state.nastaveni.povolit_rotaci_vsem ? 1 : 0
+								state.nastaveni.povolit_rotaci_vsem ? 1 : 0,
+								state.nastaveni.vice_podlozek ? 1 : 0,
+								state.nastaveni.max_podlozek
 							]
 						};
+						if (state.nastaveni.tiskarna && state.nastaveni.tiskarna !== $("#tiskarna").attr("data-vychozi")) minState.t = state.nastaveni.tiskarna;
 						const jsonStr = JSON.stringify(minState);
 						// btoa umí jen Latin-1: název s diakritikou nejdřív převést na UTF-8 bajty.
 						const b64 = btoa(unescape(encodeURIComponent(jsonStr)));
@@ -765,6 +798,9 @@ header("Expires: 0");
 									rozprostrit_instance_v_ose_y: !!minState.n[1],
 									rozprostreni_y_rezim: (minState.n[5] ? "po_radach" : "po_instancich"),
 									povolit_rotaci_vsem: !!minState.n[6],
+									tiskarna: (typeof minState.t === "string" ? minState.t : ""),
+									vice_podlozek: !!minState.n[7],
+									max_podlozek: minState.n[8],
 									rozprostrit_instance_po_cele_podlozce: !!minState.n[2],
 									umistit_na_stred_v_ose_x: !!minState.n[3],
 									umistit_na_stred_v_ose_y: !!minState.n[4]
@@ -841,6 +877,11 @@ header("Expires: 0");
 					return best;
 				}
 
+				// Kusy právě zobrazené podložky (u více podložek jsou ostatní skryté třídou jina-podlozka).
+				function instanceAktualniPodlozky(bed) {
+					return bed ? Array.from(bed.querySelectorAll('.instance:not(.jina-podlozka)')) : [];
+				}
+
 				function renderHeadForSelection() {
 					const bed = document.getElementById('tiskova_podlozka');
 					if (!bed) return;
@@ -848,8 +889,8 @@ header("Expires: 0");
 					if (!overlay) return;
 					overlay.innerHTML = '';
 
-					const instances = Array.from(bed.querySelectorAll('.instance'));
-					instances.forEach(el => el.classList.remove('selected'));
+					bed.querySelectorAll('.instance.selected').forEach(el => el.classList.remove('selected'));
+					const instances = instanceAktualniPodlozky(bed);
 					if (!headEnabled || selectedIdx === null || !instances[selectedIdx]) return;
 
 					const el = instances[selectedIdx];
@@ -950,7 +991,7 @@ header("Expires: 0");
 				function setSelected(idx) {
 					const bed = document.getElementById('tiskova_podlozka');
 					if (!bed) return;
-					const instances = bed.querySelectorAll('.instance');
+					const instances = instanceAktualniPodlozky(bed);
 					if (!instances.length) return;
 					selectedIdx = Math.max(0, Math.min(idx, instances.length - 1));
 					renderHeadForSelection();
@@ -958,8 +999,8 @@ header("Expires: 0");
 
 				$(document).on('click', '#tiskova_podlozka .instance', function () {
 					const bed = document.getElementById('tiskova_podlozka');
-					const instances = bed ? bed.querySelectorAll('.instance') : [];
-					const idx = Array.prototype.indexOf.call(instances, this);
+					const instances = instanceAktualniPodlozky(bed);
+					const idx = instances.indexOf(this);
 					if (idx >= 0) {
 						// Na klik vždy vyberu instanci (a zobrazím detaily); hlava jen pokud je zapnutá.
 						const o = this.dataset.o || '?';
@@ -977,7 +1018,7 @@ header("Expires: 0");
 					if (headEnabled) {
 						// Default: 2. instance (pokud existuje)
 						const bed = document.getElementById('tiskova_podlozka');
-						const instances = bed ? bed.querySelectorAll('.instance') : [];
+						const instances = instanceAktualniPodlozky(bed);
 						setSelected(instances.length >= 2 ? 1 : 0);
 					} else {
 						renderHeadForSelection();
@@ -985,6 +1026,25 @@ header("Expires: 0");
 				});
 				$('#head_prev').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx - 1); });
 				$('#head_next').on('click', function () { if (selectedIdx !== null) setSelected(selectedIdx + 1); });
+
+				// Více podložek: přepínání záložek „Podložka N“ (zobrazí jen kusy vybrané podložky).
+				$(document).on('click', '.podlozka_tab', function () {
+					const cislo = this.getAttribute('data-podlozka');
+					$('.podlozka_tab').removeClass('active').attr('aria-selected', 'false');
+					$(this).addClass('active').attr('aria-selected', 'true');
+					const bed = document.getElementById('tiskova_podlozka');
+					if (!bed) return;
+					bed.querySelectorAll('.instance').forEach(el => el.classList.toggle('jina-podlozka', el.getAttribute('data-podlozka') !== cislo));
+					setDetails('');
+					selectedIdx = null;
+					if (headEnabled) {
+						const instances = instanceAktualniPodlozky(bed);
+						setSelected(instances.length >= 2 ? 1 : 0);
+					} else {
+						renderHeadForSelection();
+					}
+					adaptInstanceLabels();
+				});
 
 				// Mobil: po výpočtu schovej celé sekce (včetně nadpisu) a nech jen tlačítka
 				function applyMobileCollapse() {
@@ -1081,7 +1141,7 @@ header("Expires: 0");
 			.card-title { margin: 0; font-size: 16px; }
 
 			.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
-			button, input[type=number], textarea {
+			button, input[type=number], textarea, select {
 				border-radius: 12px;
 				border: 1px solid var(--border-input);
 				background: var(--bg-input);
@@ -1285,6 +1345,12 @@ header("Expires: 0");
 				background: repeating-linear-gradient(45deg, rgba(253,105,37,0.95) 0 6px, rgba(200,70,15,0.95) 6px 12px);
 			}
 			table#objekty td.rotace_cell { text-align: center; }
+			#nastaveni select { min-width: 12rem; }
+			#nastaveni input#max_podlozek { width: 90px; min-width: 70px; }
+			/* Více podložek: záložky „Podložka 1/2/…“, kusy ostatních podložek jsou skryté. */
+			#podlozky_prepinac { margin: 0 0 10px; }
+			#podlozky_prepinac .podlozka_tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 700; }
+			#tiskova_podlozka .instance.jina-podlozka { display: none; }
 
 			/* Mobile: po výpočtu schovej sekundární sekce (celá sekce včetně nadpisu) */
 			.mobile-section-toggle { display: none; width: fit-content; }
@@ -1353,12 +1419,29 @@ header("Expires: 0");
 				<div class="grid">
 					<!-- TODO přidat nastavení:
 					  rozměry tiskové plochy, hlavy, vodících tyčí
-						přednastavení pro různé tiskárny (Prusa MINI, MK3...)
 						tisk kalibračních objektů
 						nerozprostření objektů, ale umístění na střed (X, Y)
 						množství filamentu - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkového množství
 						doba tisku - nutno přidat k objektu jako údaj, aby se udělalo jen tolik instancí, kolik se vleze do celkové doby
 			    -->
+					<label for="tiskarna">
+						<span class="hint">Tiskárna</span>
+						<select id="tiskarna" name="tiskarna" data-vychozi="<?php echo htmlspecialchars(PredvolbyTiskaren::vychoziId(), ENT_QUOTES, "UTF-8");?>">
+<?php foreach ($predvolby_tiskaren as $id_predvolby => $nazev_predvolby) {?>
+							<option value="<?php echo htmlspecialchars($id_predvolby, ENT_QUOTES, "UTF-8");?>"<?php if ($id_predvolby === $tiskarna_id) {?> selected="selected"<?php }?>><?php echo htmlspecialchars($nazev_predvolby, ENT_QUOTES, "UTF-8");?></option>
+<?php }?>
+						</select>
+					</label>
+					<label for="vice_podlozek">
+						<input id="vice_podlozek" type="checkbox" name="vice_podlozek" value="1" <?php if($vice_podlozek) {?>checked="checked" <?php }?>/>
+						<span class="hint">Více podložek (co se nevejde, pokračuje na další podložce; „max“ jen na první)</span>
+					</label>
+					<div class="sub-options">
+						<label for="max_podlozek">
+							<span class="hint">Nejvýš podložek</span>
+							<input id="max_podlozek" type="number" name="max_podlozek" value="<?php echo (int)$max_podlozek;?>" step="1" min="1" max="<?php echo SequentialPrintCalculator::MAXIMALNI_POCET_PODLOZEK;?>" />
+						</label>
+					</div>
 					<label for="rozprostrit_instance_v_ose_x">
 						<input id="rozprostrit_instance_v_ose_x" type="checkbox" name="rozprostrit_instance_v_ose_x" value="1" <?php if($rozprostrit_instance_v_ose_x) {?>checked="checked" <?php }?>/>
 						<span class="hint">Rozprostřít instance v ose X (rovnoměrně)</span>
@@ -1428,6 +1511,11 @@ header("Expires: 0");
 		</div>
 
 <?php
+if ($chyba_tiskarny !== "") {
+?>
+		<div id="chyba_tiskarny" class="card" style="margin-top: 14px; color: var(--danger); font-weight: 600;"><?php echo htmlspecialchars($chyba_tiskarny, ENT_QUOTES, "UTF-8");?></div>
+<?php
+}
 if (!empty($chyby_v_rozmerech)) {
 	echo "Tyto objekty obsahují chyby v rozměrech:";
 	print_r($chyby_v_rozmerech);
@@ -1531,7 +1619,7 @@ if (!empty($zbyva_v_ose_X)) {
 			<div class="remaining-grid">
 			<div class="card" style="margin-top: 12px;">
 			<div class="toolbar" style="margin: 0 0 8px;">
-				<h2 class="card-title">Zbývá místa v ose X</h2>
+				<h2 class="card-title">Zbývá místa v ose X<?php if ($pocet_podlozek > 1) echo " (podložka 1)";?></h2>
 			</div>
 			<div class="table-wrap">
 			<table class="compact">
@@ -1562,7 +1650,7 @@ if ($zbyva_v_ose_Y) {
 ?>
 			<div class="card" style="margin-top: 12px;">
 			<div class="toolbar" style="margin: 0 0 8px;">
-				<h2 class="card-title">Zbývá místa v ose Y</h2>
+				<h2 class="card-title">Zbývá místa v ose Y<?php if ($pocet_podlozek > 1) echo " (podložka 1)";?></h2>
 			</div>
 			<div class="table-wrap">
 			<table class="compact">
@@ -1602,6 +1690,7 @@ if (!empty($pos)) {
 			<table>
 				<tr>
 					<th>Podložka</th>
+					<th title="Pořadí tisku na podložce">Pořadí</th>
 					<th>Řada</th>
 					<th>ID objektu</th>
 					<th>Název</th>
@@ -1612,23 +1701,32 @@ if (!empty($pos)) {
 				</tr>
 <?php
 	foreach ($pos as $p => $podlozka) {
-		$pocet_instanci_na_podlozce = $pocet_instanci;
+		// Počet kusů na podložce (rowspan) a objekty této podložky (rotace se u více podložek volí po podložkách).
+		$pocet_instanci_na_podlozce = 0;
+		foreach ($podlozka as $rada) $pocet_instanci_na_podlozce += count($rada);
+		$objekty_na_podlozce = $objekty_podlozek[$p] ?? $objekty_serazene;
+		$poradi_na_podlozce = 0;
+		$prvni_na_podlozce = true;
 		foreach ($podlozka as $y => $rada) {
 			$pocet_instanci_v_rade = count($rada);
+			$prvni_v_rade = true;
 			foreach ($rada as $x => $instance) {
+				$poradi_na_podlozce++;
 				$o = $instance["o"];
 				$i = $instance["i"];
 				$ix = $instance["X"];
 				$iy = $instance["Y"];
-				echo '<tr>';
-				if ($y == 1 and $x == 1) echo '<td rowspan="'.$pocet_instanci_na_podlozce.'">'.$p.'</td>';
-				if ($x == 1) echo '<td rowspan="'.$pocet_instanci_v_rade.'">'.$y.'</td>';
+				echo '<tr data-podlozka="'.$p.'">';
+				if ($prvni_na_podlozce) echo '<td rowspan="'.$pocet_instanci_na_podlozce.'">'.$p.'</td>';
+				echo '<td>'.$poradi_na_podlozce.'</td>';
+				if ($prvni_v_rade) echo '<td rowspan="'.$pocet_instanci_v_rade.'">'.$y.'</td>';
+				$prvni_na_podlozce = $prvni_v_rade = false;
 				echo '<td>'.$o.'</td>';
-				echo '<td style="text-align: left;">'.htmlspecialchars($objekty_serazene[($o - 1)]["nazev"] ?? "", ENT_QUOTES, "UTF-8").'</td>';
+				echo '<td style="text-align: left;">'.htmlspecialchars($objekty_na_podlozce[($o - 1)]["nazev"] ?? "", ENT_QUOTES, "UTF-8").'</td>';
 				echo '<td>'.$i.'</td>';
 				echo '<td>'.format_cislo($ix, false, 2).'</td>';
 				echo '<td>'.format_cislo($iy, false, 2).'</td>';
-				echo '<td>'.(!empty($objekty_serazene[($o - 1)]["otoceno"]) ? '↻ 90°' : '').'</td>';
+				echo '<td>'.(!empty($objekty_na_podlozce[($o - 1)]["otoceno"]) ? '↻ 90°' : '').'</td>';
 				echo '</tr>';
 			}
 		}
@@ -1658,22 +1756,32 @@ if (!empty($pos)) {
 				<div style="color: var(--muted); font-size: 13px; margin: 0 0 10px;">
 					Podložka: <?php echo format_cislo($vizX, false, 0);?>×<?php echo format_cislo($vizY, false, 0);?> mm • Mřížka 10 mm • Hover pro detaily
 				</div>
+<?php if (count($pos) > 1) {?>
+				<div id="podlozky_prepinac" class="toolbar" role="tablist" aria-label="Podložky">
+<?php foreach ($pos as $p => $podlozka) {
+		$pocet_na_podlozce = 0;
+		foreach ($podlozka as $rada) $pocet_na_podlozce += count($rada);
+?>
+					<button class="small ghost podlozka_tab<?php if ($p === 1) echo " active";?>" type="button" role="tab" aria-selected="<?php echo $p === 1 ? "true" : "false";?>" data-podlozka="<?php echo $p;?>" title="<?php echo $pocet_na_podlozce.' '.sklonovani($pocet_na_podlozce, "kus", "kusy", "kusů");?>">Podložka <?php echo $p;?> (<?php echo $pocet_na_podlozce;?>)</button>
+<?php }?>
+				</div>
+<?php }?>
 				<div id="tiskova_podlozka"
 						 data-printer='<?php echo htmlspecialchars(json_encode($vysledek["printer"] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
 						 data-head-steps='<?php echo htmlspecialchars(json_encode(($vysledek["printer"]["head_steps"] ?? []), JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
 						 style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>; --grid-x: <?php echo number_format($grid_x_pct, 4, ".", "");?>%; --grid-y: <?php echo number_format($grid_y_pct, 4, ".", "");?>%;">
 					<div class="overlay"></div>
 <?php
-	$seq = 0;
 	foreach ($pos as $p => $podlozka) {
-		$pocet_instanci_na_podlozce = $pocet_instanci;
+		// Pořadí tisku (data-seq) se čísluje v rámci podložky; kusy dalších podložek jsou skryté (záložky).
+		$seq = 0;
+		$objekty_na_podlozce = $objekty_podlozek[$p] ?? $objekty_serazene;
 		foreach ($podlozka as $y => $rada) {
-			$pocet_instanci_v_rade = count($rada);
 			foreach ($rada as $x => $instance) {
 				$seq++;
 				$o = $instance["o"];
 				$i = $instance["i"];
-				$objekt = $objekty_serazene[($o - 1)];
+				$objekt = $objekty_na_podlozce[($o - 1)];
 				$ox = $objekt["x"];
 				$oy = $objekt["y"];
 				$oz = $objekt["z"];
@@ -1688,10 +1796,10 @@ if (!empty($pos)) {
 				$nazev_objektu = $objekt["nazev"] ?? "";
 				// Otočený objekt: rozměry x/y jsou už zaměněné (obdélník se kreslí otočený), navíc označení ↻.
 				$otoceny = !empty($objekt["otoceno"]);
-				$title = 'Objekt '.$o.($nazev_objektu !== "" ? ' ('.$nazev_objektu.')' : '').' / instance '.$i.($otoceny ? ' / otočeno o 90°' : '')."\n".
+				$title = ($pocet_podlozek > 1 ? 'Podložka '.$p.' / ' : '').'Objekt '.$o.($nazev_objektu !== "" ? ' ('.$nazev_objektu.')' : '').' / instance '.$i.($otoceny ? ' / otočeno o 90°' : '')."\n".
 					'Rozměr: '.format_cislo($ox, false, 2).'×'.format_cislo($oy, false, 2).'×'.format_cislo($oz, false, 2)." mm\n".
 					'Pozice (levý přední roh): '.format_cislo($ix_levy_dolni_roh, false, 2).' ; '.format_cislo($iy_levy_dolni_roh, false, 2).' mm';
-				echo '			  <div class="instance'.($otoceny ? ' otocene' : '').'"'.($otoceny ? ' data-otoceno="1"' : '').' data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'"'.($nazev_objektu !== "" ? ' data-nazev="'.htmlspecialchars($nazev_objektu, ENT_QUOTES, "UTF-8").'"' : '').' data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.($otoceny ? ' ↻' : '').'</small></div></div>';
+				echo '			  <div class="instance'.($otoceny ? ' otocene' : '').($p > 1 ? ' jina-podlozka' : '').'"'.($otoceny ? ' data-otoceno="1"' : '').' data-podlozka="'.$p.'" data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'"'.($nazev_objektu !== "" ? ' data-nazev="'.htmlspecialchars($nazev_objektu, ENT_QUOTES, "UTF-8").'"' : '').' data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.($otoceny ? ' ↻' : '').'</small></div></div>';
 			}
 		}
 	}

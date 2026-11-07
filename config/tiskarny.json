@@ -1,0 +1,33 @@
+{
+  "_popis": "Předvolby tiskáren (bez DB). Klíč = id předvolby (GET/CLI/API 'tiskarna'). 'parametry' mají stejné klíče jako 'printer' (viz README, Předvolby tiskáren); 'zdroje' říkají, odkud která hodnota je. Přidávej jen ověřené hodnoty.",
+  "vychozi": "prusa_mini",
+  "tiskarny": {
+    "prusa_mini": {
+      "nazev": "Prusa MINI / MINI+",
+      "parametry": {
+        "x": 180,
+        "y": 180,
+        "z": 180,
+        "posun_zprava": 1,
+        "Xr": 12,
+        "Xl": 36.5,
+        "Yr": 15.5,
+        "Yl": 15.5,
+        "vodici_tyce_Z": 21,
+        "vodici_tyce_Y": 17.4
+      },
+      "zdroje": {
+        "x": "Tisková plocha 180 × 180 × 180 mm podle technických parametrů Prusa MINI+ (prusa3d.com); totéž je i v dosavadní výchozí tiskárně aplikace.",
+        "y": "Viz x.",
+        "z": "Viz x.",
+        "posun_zprava": "Změřeno autorem aplikace (objekt zcela vpravo má deformovanou stěnu), dosavadní výchozí hodnota.",
+        "Xr": "Změřeno autorem aplikace na vlastní Prusa MINI (vzdálenost trysky od pravé hrany hlavy), dosavadní výchozí hodnota.",
+        "Xl": "Změřeno autorem aplikace (tryska - levá hrana hlavy), dosavadní výchozí hodnota.",
+        "Yr": "Změřeno autorem aplikace (tryska - zadní hrana hlavy), dosavadní výchozí hodnota.",
+        "Yl": "Změřeno autorem aplikace (tryska - přední hrana hlavy), dosavadní výchozí hodnota.",
+        "vodici_tyce_Z": "Změřeno autorem aplikace (výška vodicích tyčí osy X nad tryskou), dosavadní výchozí hodnota.",
+        "vodici_tyce_Y": "Změřeno autorem aplikace (vzdálenost vodicích tyčí od trysky v ose Y), dosavadní výchozí hodnota."
+      }
+    }
+  }
+}

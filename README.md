@@ -18,6 +18,8 @@ php tests/run.php
   - `po_radach` - celá řada se posune o stejný krok, zbylé místo se rozdělí mezi řady (1. řada na startu, poslední u protějšího okraje), kusy v řadě mají stejné Y (u stejně hlubokých kusů bez posunu kvůli vodicím tyčím). Mezery mezi řadami se jen zvětší, takže kolize nepřibudou; výsledek stejně ověří kontrola kolizí.
   V UI přepínač pod volbou „Rozprostřít instance v ose Y“, v GET `rozprostreni_y_rezim=po_radach`, v CLI a API `options.rozprostreni_y_rezim`. Neznámá hodnota = `po_instancich` (CLI ji odmítne jako chybný vstup).
 - **Rozprostřít po celé podložce**: zkouší měnit počet řad tak, aby se instance využily po celé ploše.
+- **Tiskárna** (`tiskarna=prusa_mini`, v UI výběr „Tiskárna“ v Nastavení): předvolba z `config/tiskarny.json`, bez parametru výchozí Prusa MINI. Projde do sdíleného odkazu (jen když není výchozí) i exportu/importu. Neznámá předvolba = hláška místo výpočtu (JSON: `{"error": ...}`). Viz [Předvolby tiskáren](#předvolby-tiskáren).
+- **Více podložek** (`vice_podlozek=1`, `max_podlozek=N`, v UI „Více podložek“ a „Nejvýš podložek“ v Nastavení): co se nevejde na jednu podložku, pokračuje na další. Výchozí vypnuto. Viz [Více podložek](#více-podložek).
 - **Rotace o 90°** (`objekty[0][rotace]=1`, v UI checkbox „Rotace 90°“ v tabulce objektů; globálně `povolit_rotaci_vsem=1`, v UI „Povolit rotaci o 90° všem objektům“ v Nastavení): výpočet smí objekt otočit kolem osy Z o 90° (záměna rozměrů x a y), když se tak vejde víc kusů. Výchozí vypnuto (kompatibilita: bez volby je výsledek stejný jako dřív). Viz [Rotace o 90°](#rotace-o-90).
 
 ## Rotace o 90°
@@ -36,6 +38,34 @@ Výstup: `pozice[].otoceno` (`true` = kus je otočený, **v sliceru ho otoč o 9
 
 Kde se volba zadává: UI (checkbox u objektu, přepínač v Nastavení; projde do sdíleného odkazu i exportu/importu), GET (`objekty[0][rotace]=1`, `povolit_rotaci_vsem=1`), CLI a API (`objekty[].rotace`, `options.povolit_rotaci_vsem`). CLI s povolenou rotací přijme i objekt, který se na podložku vejde jen otočený.
 
+## Více podložek
+
+Volba `vice_podlozek` (výchozí vypnuto = jedna podložka jako dřív) a `max_podlozek` (celé číslo 1 až 20, výchozí 20; hodnota mimo rozsah se v UI a API omezí, CLI ji odmítne). Když se požadované instance nevejdou na první podložku, výpočet pokračuje další podložkou jen se zbylými kusy. Každá podložka se počítá stejnými pravidly (řady, rozprostření, rotace, kontrola kolizí) a samostatně, takže každá je bez kolize sama o sobě (tiskne se zvlášť). Končí, když se vešlo vše, když se na další podložku nevešel žádný kus, nebo na stropu `max_podlozek`.
+
+- **„max“ jen na první podložce:** objekt s počtem `max` se umisťuje jen na 1. podložku (jinak by zaplnil všechny podložky až do stropu). Další podložky dostanou jen objekty s přesným počtem. Na 1. podložce se o místo dělí stejně jako bez volby (přednost prvního objektu, poměrné rozdělení), takže `max` objekt tam může dostat i 0 kusů.
+- **1. podložka je vždy stejná jako bez volby.** Když se vše vejde na jednu podložku, je výstup s volbou i bez ní stejný.
+- **Rotace** se volí pro každou podložku zvlášť: rozhoduje `pozice[].otoceno` a `podlozky[].otocene_objekty`; `otocene_objekty` je sjednocení přes podložky a `objekty` (rozměry, `otoceno`) jsou podle 1. podložky.
+- **Číslování:** `pozice[].podlozka` (1..N), `poradi` = pořadí tisku v rámci podložky (na každé podložce od 1), `poradi_celkem` = pořadí přes všechny podložky (1..počet kusů). `instance` se čísluje průběžně přes podložky (na 2. podložce pokračuje za 1. podložkou). Bez volby je `podlozka` vždy 1 a `poradi_celkem = poradi`.
+- **Výstup:** `pocet_podlozek`, `pocet_instanci` celkem, `podlozky` (souhrn každé podložky: `podlozka`, `pocet_instanci`, `pocet_rad`, `otocene_objekty`, `kontrola_kolizi`), `kontrola_kolizi` souhrnně (`ok` jen když jsou bez kolize všechny podložky, konflikty mají navíc `podlozka`, kroky v `postup` předponu „Podložka N:“). `positions` (`[instance, X, Y]`) jsou za sebou přes všechny podložky a podložku neříkají, u více podložek ber `pozice`.
+- **`limit`** řeší jen to, co se nevešlo ani na všechny podložky: na stropu `duvod: "max_podlozek"` („umístěno 12 z 20 na 2 podložkách - další podložka by překročila strop max_podlozek (2)“), objekty vyřazené kvůli rozměru a objekty `max` bez kusu zůstávají z 1. podložky. S volbou vypnutou je `limit` jako dřív.
+- **UI:** text „Na N podložky se vleze celkem … (podložka 1: …, podložka 2: …)“, ve vizualizaci záložky „Podložka 1 (6) / Podložka 2 (6) / …“ (tisková hlava a šipky ←/→ chodí po kusech vybrané podložky), v tabulce pozic sloupce Podložka a Pořadí (v rámci podložky), v poli JSON pod vizualizací `pozice` místo `positions`. Tabulky „Zbývá místa“ jsou pro 1. podložku.
+- Kde se zadává: UI (Nastavení, sdílený odkaz, export/import), GET (`vice_podlozek=1`, `max_podlozek=5`), CLI a API (`options.vice_podlozek`, `options.max_podlozek`).
+
+## Předvolby tiskáren
+
+Předvolby jsou bez DB v souboru `config/tiskarny.json` (čte ho `src/PredvolbyTiskaren.php`). Výchozí předvolba (`"vychozi"`) je Prusa MINI a je to jediný zdroj výchozí tiskárny: `SequentialPrintCalculator::vychoziTiskarna()` ji čte z tohoto souboru (dřív konstanta `VYCHOZI_TISKARNA`). Hodnoty MINI jsou dosavadní změřené hodnoty aplikace.
+
+Zatím je v souboru jen Prusa MINI. Pro další tiskárny (MK4, XL, …) nemám ověřené rozměry hlavy v tom tvaru, který výpočet potřebuje (asymetrická hlava Xl/Xr/Yl/Yr a výška a vzdálenost vodicích tyčí / portálu), proto tam nejsou. PrusaSlicer v profilech uvádí `extruder_clearance_radius` a `extruder_clearance_height`, to je ale válec kolem trysky a výška portálu pro kontrolu sekvenčního tisku, ne rozměry, které tu výpočet používá. Dají se z nich vzít jen jako hrubá kontrola, ne jako náhrada měření.
+
+Jak přidat tiskárnu:
+
+1. Do `config/tiskarny.json` do `tiskarny` přidej objekt s id (ASCII, např. `prusa_mk4s`): `nazev` (text pro výběr v UI), `parametry` a `zdroje`.
+2. `parametry` mají stejné klíče jako `printer`: `x`, `y`, `z` (tisková plocha v mm), `posun_zprava` (korekce pravého okraje, jinak 0), `Xl`, `Xr`, `Yl`, `Yr` (vzdálenost trysky od levé, pravé, přední a zadní hrany hlavy v mm), `vodici_tyce_Z` (výška vodicích tyčí / portálu nad tryskou), `vodici_tyce_Y` (vzdálenost tyčí od trysky v ose Y); volitelně `head_steps` (schody profilu hlavy podle výšky). Všechny povinné hodnoty musí být čísla, jinak soubor nejde načíst.
+3. Do `zdroje` napiš u každé hodnoty, odkud je (vlastní měření, odkaz na dokumentaci výrobce, profil PrusaSliceru). Test `php tests/run.php` hlídá, že žádná hodnota nemá prázdný zdroj.
+4. Ověř výsledek (`php tests/run.php`, vizualizace s tiskovou hlavou) a nejlépe zkušební tisk.
+
+Kde se volí: UI (výběr „Tiskárna“ v Nastavení, GET `tiskarna=<id>`, sdílený odkaz, export/import), CLI a API (`"tiskarna": "<id>"` v kořeni vstupu, nebo `"printer": "<id>"` místo objektu). Vlastní hodnoty v objektu `printer` přepíšou hodnoty předvolby (bez `tiskarna` přepisují výchozí MINI, jako dřív). Neznámá předvolba je chyba: CLI exit code 1, `api.php` HTTP 400 s `{"error": ...}`, `index.php?format=json` `{"error": ...}`, UI hláška místo výpočtu.
+
 ## CLI (bez DB a bez webového serveru)
 
 ```bash
@@ -50,15 +80,17 @@ Vstup:
 {
   "objekty": [{"x": 50, "y": 50, "z": 100, "instances": {"d": 3}, "nazev": "krabička"},
               {"x": 15, "y": 100, "z": 50, "instances": {"d": "max"}, "rotace": true}],
-  "options": {"rozprostrit_instance_v_ose_x": false, "rozprostreni_y_rezim": "po_radach", "povolit_rotaci_vsem": false},
+  "options": {"rozprostrit_instance_v_ose_x": false, "rozprostreni_y_rezim": "po_radach", "povolit_rotaci_vsem": false,
+              "vice_podlozek": true, "max_podlozek": 5},
+  "tiskarna": "prusa_mini",
   "printer": {"Xl": 36.5, "Xr": 12}
 }
 ```
 
 - `objekty` je povinné pole; `instances.d` je celé číslo ≥ 1 nebo `"max"` (bez `instances` = 1 kus); `nazev` je volitelný text a propíše se do `pozice`, `objekty` a `limit` ve výstupu (oříznutý na 60 znaků); `rotace` (`true`/`false`) povolí otočení o 90° (viz [Rotace o 90°](#rotace-o-90)).
-- `options` a `printer` jsou volitelné, chybějící hodnoty = výchozí jako v UI (Prusa MINI: x/y/z 180, posun_zprava 1, Xr 12, Xl 36.5, Yr 15.5, Yl 15.5, vodici_tyce_Z 21, vodici_tyce_Y 17.4). `printer` může mít i `head_steps`.
-- Výstup (stdout, JSON): stejné klíče jako `api.php` - `positions`, `pozice`, `pocet_instanci`, `pocet_podlozek`, `objekty`, `printer`, `kontrola_kolizi`, `limit`, `otocene_objekty`.
-- Exit code: `0` = OK, `1` = chybný vstup (na stdout `{"error": "..."}`, hláška i na stderr), `2` = výsledek obsahuje kolizi (`kontrola_kolizi.ok = false`; výpočet se tomu snaží zabránit, viz níže).
+- `options`, `tiskarna` a `printer` jsou volitelné, chybějící hodnoty = výchozí jako v UI (předvolba Prusa MINI z `config/tiskarny.json`: x/y/z 180, posun_zprava 1, Xr 12, Xl 36.5, Yr 15.5, Yl 15.5, vodici_tyce_Z 21, vodici_tyce_Y 17.4). `tiskarna` je id předvolby (viz [Předvolby tiskáren](#předvolby-tiskáren)); `printer` je objekt s vlastními hodnotami (přepíšou předvolbu, může mít i `head_steps`), nebo místo objektu id předvolby. `options.vice_podlozek` (`true`/`false`) a `options.max_podlozek` (1 až 20) viz [Více podložek](#více-podložek).
+- Výstup (stdout, JSON): stejné klíče jako `api.php` - `positions`, `pozice`, `pocet_instanci`, `pocet_podlozek`, `objekty`, `printer`, `kontrola_kolizi`, `limit`, `otocene_objekty`, `podlozky`.
+- Exit code: `0` = OK, `1` = chybný vstup, včetně neznámé předvolby tiskárny (na stdout `{"error": "..."}`, hláška i na stderr), `2` = výsledek obsahuje kolizi (`kontrola_kolizi.ok = false`; výpočet se tomu snaží zabránit, viz níže).
 
 ## Kontrola kolizí
 
@@ -106,11 +138,12 @@ curl 'http://localhost/index.php?format=json&objekty[0][x]=50&objekty[0][y]=50&o
 - `pozice`: totéž s metadaty, aby integrace věděla, který kus je který:
 
 ```json
-{"poradi": 1, "objekt": 0, "instance": 1, "rada": 1, "X": 154.11, "Y": 22.98, "otoceno": false}
+{"poradi": 1, "poradi_celkem": 1, "podlozka": 1, "objekt": 0, "instance": 1, "rada": 1, "X": 154.11, "Y": 22.98, "otoceno": false}
 ```
 
-  `poradi` = pořadí tisku (1, 2, …), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm, `nazev` = název objektu (jen když je zadaný), `otoceno` = kus je otočený o 90° kolem Z (v sliceru ho otoč, viz [Rotace o 90°](#rotace-o-90)).
-  Při tisku po objektech dej v sliceru každý kus jako samostatný objekt v pořadí `poradi` (PrusaSlicer pořadí seznamu dodrží).
+  `poradi` = pořadí tisku na podložce (1, 2, …), `poradi_celkem` = pořadí přes všechny podložky, `podlozka` = číslo podložky (1..`pocet_podlozek`; bez volby `vice_podlozek` vždy 1 a `poradi_celkem = poradi`, viz [Více podložek](#více-podložek)), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm, `nazev` = název objektu (jen když je zadaný), `otoceno` = kus je otočený o 90° kolem Z (v sliceru ho otoč, viz [Rotace o 90°](#rotace-o-90)).
+  Při tisku po objektech dej v sliceru každý kus jako samostatný objekt v pořadí `poradi` (PrusaSlicer pořadí seznamu dodrží), u více podložek každou podložku jako samostatný projekt.
+- `pocet_podlozek` a `podlozky`: počet podložek a souhrn každé z nich (`podlozka`, `pocet_instanci`, `pocet_rad`, `otocene_objekty`, `kontrola_kolizi`). Bez volby `vice_podlozek` je podložka jedna.
 - `kontrola_kolizi`: výsledek nezávislé kontroly kolizí (viz [Kontrola kolizí](#kontrola-kolizí)):
 
 ```json
@@ -134,11 +167,12 @@ curl 'http://localhost/index.php?format=json&objekty[0][x]=50&objekty[0][y]=50&o
   - `tyce` - totéž kvůli vodicím tyčím nad vyšším kusem,
   - `kolize` - kus vynechala kontrola kolizí (viz [Kontrola kolizí](#kontrola-kolizí)),
   - `rozmer` - rozměr objektu je větší než tisková plocha (objekt se vůbec nepočítá),
-  - `sdilene_misto` - zbylé místo dostaly ostatní objekty (přednost prvního objektu, když se nevešel jeho přesný počet, nebo poměrné rozdělení podle požadovaných počtů).
+  - `sdilene_misto` - zbylé místo dostaly ostatní objekty (přednost prvního objektu, když se nevešel jeho přesný počet, nebo poměrné rozdělení podle požadovaných počtů),
+  - `max_podlozek` - jen s volbou `vice_podlozek`: zbylé kusy by potřebovaly další podložku nad strop `max_podlozek`.
 
   UI ukáže totéž pod počtem instancí jako seznam „Nevešlo se vše“.
 
-Výchozí tiskárna (Prusa MINI) a výchozí nastavení jsou na jediném místě: `SequentialPrintCalculator::VYCHOZI_TISKARNA` a `VYCHOZI_NASTAVENI`. Berou je UI, API i CLI; chybějící hodnoty v `printer`/`options` se doplní z nich.
+Výchozí tiskárna (Prusa MINI) a výchozí nastavení jsou na jediném místě: předvolba v `config/tiskarny.json` (čte ji `SequentialPrintCalculator::vychoziTiskarna()`) a `SequentialPrintCalculator::VYCHOZI_NASTAVENI`. Berou je UI, API i CLI; chybějící hodnoty v `printer`/`options` se doplní z nich. Jinou předvolbu vybere `"tiskarna": "<id>"` (POST) nebo `tiskarna=<id>` (GET).
 
 POST `application/json`:
 

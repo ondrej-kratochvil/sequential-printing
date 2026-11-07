@@ -27,7 +27,7 @@ function ok(string $message): void {
 function runScenarioCli(array $get): array {
     // CLI i web poběží stejně (bez shell_exec), jen CLI má plný balík testů.
     $calc = new SequentialPrintCalculator(
-        SequentialPrintCalculator::VYCHOZI_TISKARNA,
+        SequentialPrintCalculator::vychoziTiskarna(),
         [
             "rozprostrit_instance_po_cele_podlozce" => true,
             "rozprostrit_instance_v_ose_x" => true,
@@ -174,20 +174,20 @@ if (PHP_SAPI === 'cli') {
 
     // --- Kontrola kolizí (ROADMAP B1) ---
 
-    // Výchozí tiskárna: prázdné printer = VYCHOZI_TISKARNA (jediné místo s výchozími hodnotami).
+    // Výchozí tiskárna: prázdné printer = vychoziTiskarna() (předvolba MINI) (jediné místo s výchozími hodnotami).
     $sVychozi = (new SequentialPrintCalculator([], []))->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]);
-    $sExplicitni = (new SequentialPrintCalculator(SequentialPrintCalculator::VYCHOZI_TISKARNA, SequentialPrintCalculator::VYCHOZI_NASTAVENI))
+    $sExplicitni = (new SequentialPrintCalculator(SequentialPrintCalculator::vychoziTiskarna(), SequentialPrintCalculator::VYCHOZI_NASTAVENI))
         ->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]);
     assertSame($sExplicitni["pozice"], $sVychozi["pozice"], "Prázdné printer/options = výchozí tiskárna a nastavení");
     ok("Výchozí tiskárna a nastavení se berou z jednoho místa.");
 
     // Regresní scénáře: oba směry tisku v X i Y, vysoké objekty nad vodicími tyčemi, mix rozměrů, „max“.
     $tiskarny = [
-        "MINI (Xl>Xr, Yl=Yr)" => [SequentialPrintCalculator::VYCHOZI_TISKARNA, "zprava_doleva", "zepredu_dozadu"],
-        "Xl<Xr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Xl" => 12, "Xr" => 36.5]), "zleva_doprava", "zepredu_dozadu"],
-        "Yl<Yr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Yl" => 10, "Yr" => 30]), "zprava_doleva", "zepredu_dozadu"],
-        "Yl>Yr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Yl" => 30, "Yr" => 10]), "zprava_doleva", "zezadu_dopredu"],
-        "Xl<Xr, Yl>Yr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Xl" => 12, "Xr" => 36.5, "Yl" => 30, "Yr" => 10]), "zleva_doprava", "zezadu_dopredu"],
+        "MINI (Xl>Xr, Yl=Yr)" => [SequentialPrintCalculator::vychoziTiskarna(), "zprava_doleva", "zepredu_dozadu"],
+        "Xl<Xr" => [array_merge(SequentialPrintCalculator::vychoziTiskarna(), ["Xl" => 12, "Xr" => 36.5]), "zleva_doprava", "zepredu_dozadu"],
+        "Yl<Yr" => [array_merge(SequentialPrintCalculator::vychoziTiskarna(), ["Yl" => 10, "Yr" => 30]), "zprava_doleva", "zepredu_dozadu"],
+        "Yl>Yr" => [array_merge(SequentialPrintCalculator::vychoziTiskarna(), ["Yl" => 30, "Yr" => 10]), "zprava_doleva", "zezadu_dopredu"],
+        "Xl<Xr, Yl>Yr" => [array_merge(SequentialPrintCalculator::vychoziTiskarna(), ["Xl" => 12, "Xr" => 36.5, "Yl" => 30, "Yr" => 10]), "zleva_doprava", "zezadu_dopredu"],
     ];
     $sadyObjektu = [
         "vysoké nad tyčemi" => [["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]],
@@ -601,6 +601,187 @@ if (PHP_SAPI === 'cli') {
     $json = json_decode($spustIndex(["povolit_rotaci_vsem" => "1", "format" => "json", "objekty" => [["x" => "15", "y" => "100", "z" => "50", "instances" => ["d" => "max"]]]]), true);
     assertSame(6, $json["pocet_instanci"], "index.php: povolit_rotaci_vsem z GET");
     ok("Rotace v CLI (objekty[].rotace, options.povolit_rotaci_vsem) a v UI (vizualizace, tabulka pozic, JSON).");
+
+    // --- Více podložek (vice_podlozek, max_podlozek) ---
+    $kontrolaPoPodlozkach = function (array $res, string $label): void {
+        // Každá podložka samostatně: nezávislá kontrola kolizí z pozic a rozměrů objektů té podložky, pořadí 1..n.
+        assertSame(true, $res["kontrola_kolizi"]["ok"], "{$label}: kontrola_kolizi.ok");
+        $poPodlozkach = [];
+        foreach ($res["pozice"] as $p) $poPodlozkach[$p["podlozka"]][] = $p;
+        assertSame(range(1, $res["pocet_podlozek"]), array_keys($poPodlozkach), "{$label}: podložky 1..pocet_podlozek");
+        assertSame($res["pocet_podlozek"], count($res["podlozky"]), "{$label}: souhrn podlozky");
+        foreach ($poPodlozkach as $cislo => $pozicePodlozky) {
+            $objektyPodlozky = $res["objekty_podlozek"][$cislo] ?? $res["objekty"];
+            $k = (new CollisionChecker($res["printer"]))->check(CollisionChecker::kusyZVysledku($pozicePodlozky, $objektyPodlozky));
+            assertSame(true, $k["ok"], "{$label}: podložka {$cislo} bez kolize (nezávislá kontrola)");
+            assertSame(range(1, count($pozicePodlozky)), array_column($pozicePodlozky, "poradi"), "{$label}: poradi v rámci podložky {$cislo}");
+            assertSame(count($pozicePodlozky), $res["podlozky"][$cislo - 1]["pocet_instanci"], "{$label}: počet kusů podložky {$cislo}");
+            assertSame(true, $res["podlozky"][$cislo - 1]["kontrola_kolizi"]["ok"], "{$label}: kontrola_kolizi podložky {$cislo}");
+        }
+        assertSame(range(1, count($res["pozice"])), array_column($res["pozice"], "poradi_celkem"), "{$label}: poradi_celkem 1..N");
+        assertSame(count($res["pozice"]), $res["pocet_instanci"], "{$label}: pocet_instanci = počet pozic");
+        // Instance každého objektu číslované průběžně přes podložky 1..n.
+        $instance = [];
+        foreach ($res["pozice"] as $p) $instance[$p["objekt"]][] = $p["instance"];
+        foreach ($instance as $id => $cisla) {
+            sort($cisla);
+            assertSame(range(1, count($cisla)), $cisla, "{$label}: instance objektu {$id} číslované 1..n");
+        }
+    };
+
+    // a) Nevejde se na jednu podložku: bez volby 6 kusů a limit, s volbou 20 kusů na 4 podložkách bez kolize.
+    $dlazdice = [["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 20], "nazev" => "dlaždice"]];
+    $jedna = (new SequentialPrintCalculator([], []))->calculate($dlazdice);
+    $vice = (new SequentialPrintCalculator([], ["vice_podlozek" => true]))->calculate($dlazdice);
+    assertSame([6, 1, "misto_y"], [$jedna["pocet_instanci"], $jedna["pocet_podlozek"], $jedna["limit"][0]["duvod"] ?? null], "Více podložek: bez volby jen 1 podložka a limit");
+    assertSame([20, 4, []], [$vice["pocet_instanci"], $vice["pocet_podlozek"], $vice["limit"]], "Více podložek: 20 kusů na 4 podložkách, limit prázdný");
+    assertSame([6, 6, 6, 2], array_column($vice["podlozky"], "pocet_instanci"), "Více podložek: kusy po podložkách");
+    assertSame(20, $vice["objekty"][0]["instances"]["r"], "Více podložek: objekty[].instances.r celkem");
+    assertSame($jedna["pozice"], array_values(array_filter($vice["pozice"], function ($p) { return $p["podlozka"] === 1; })), "Více podložek: 1. podložka stejná jako bez volby");
+    assertSame([2, 1, 7], [$vice["pozice"][6]["podlozka"], $vice["pozice"][6]["poradi"], $vice["pozice"][6]["poradi_celkem"]], "Více podložek: 7. kus = 1. kus 2. podložky");
+    assertSame(count($vice["pozice"]), count($vice["datova_veta_pole"]), "Více podložek: positions odpovídá pozice");
+    assertSame([4, 4], [count($vice["pos"]), count(SequentialPrintCalculator::vystupApi($vice)["podlozky"])], "Více podložek: pos a podlozky po podložkách");
+    $kontrolaPoPodlozkach($vice, "Více podložek (dlaždice)");
+
+    // b) Dva objekty, všechny tiskárny: každý objekt má na podložkách celkem požadovaný počet, každá podložka bez kolize.
+    $mix = [
+        ["x" => 30, "y" => 60, "z" => 5, "instances" => ["d" => 15]],
+        ["x" => 15, "y" => 15, "z" => 30, "instances" => ["d" => 25], "rotace" => true],
+    ];
+    foreach ($tiskarny as $nazevTiskarny => [$tiskarna]) {
+        $res = (new SequentialPrintCalculator($tiskarna, ["vice_podlozek" => true]))->calculate($mix);
+        $label = "Více podložek {$nazevTiskarny}";
+        assertTrue($res["pocet_podlozek"] >= 2, "{$label}: aspoň 2 podložky");
+        $pocty = array_count_values(array_column($res["pozice"], "objekt"));
+        ksort($pocty);
+        assertSame([0 => 15, 1 => 25], $pocty, "{$label}: požadované počty celkem");
+        assertSame([], $res["limit"], "{$label}: limit prázdný");
+        $kontrolaPoPodlozkach($res, $label);
+    }
+
+    // c) Regrese: volba vypnutá = stejný výsledek jako bez volby; 1. podložka s volbou = výsledek bez volby.
+    $pocetScenaru = 0;
+    foreach ($tiskarny as $nazevTiskarny => [$tiskarna]) {
+        foreach ($sadyObjektu as $nazevSady => $sada) {
+            $label = "Více podložek regrese {$nazevTiskarny} / {$nazevSady}";
+            $vychozi = (new SequentialPrintCalculator($tiskarna, []))->calculate($sada);
+            $vypnuto = (new SequentialPrintCalculator($tiskarna, ["vice_podlozek" => false, "max_podlozek" => 5]))->calculate($sada);
+            assertSame(SequentialPrintCalculator::vystupApi($vychozi), SequentialPrintCalculator::vystupApi($vypnuto), "{$label}: vypnuto = beze změny");
+            assertSame([1, [1]], [$vychozi["pocet_podlozek"], array_values(array_unique(array_column($vychozi["pozice"], "podlozka")))], "{$label}: bez volby 1 podložka");
+            assertSame(array_column($vychozi["pozice"], "poradi"), array_column($vychozi["pozice"], "poradi_celkem"), "{$label}: bez volby poradi_celkem = poradi");
+            $sVolbou = (new SequentialPrintCalculator($tiskarna, ["vice_podlozek" => true]))->calculate($sada);
+            assertSame($vychozi["pozice"], array_values(array_filter($sVolbou["pozice"], function ($p) { return $p["podlozka"] === 1; })), "{$label}: 1. podložka beze změny");
+            if ($sVolbou["pocet_podlozek"] === 1) assertSame(SequentialPrintCalculator::vystupApi($vychozi), SequentialPrintCalculator::vystupApi($sVolbou), "{$label}: vejde se na 1 podložku = beze změny");
+            $kontrolaPoPodlozkach($sVolbou, $label);
+            $pocetScenaru++;
+        }
+    }
+
+    // d) "max" jen na první podložce; strop max_podlozek.
+    $res = (new SequentialPrintCalculator([], ["vice_podlozek" => true]))->calculate([
+        ["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 10]],
+        ["x" => 20, "y" => 20, "z" => 5, "instances" => ["d" => "max"]],
+    ]);
+    $podlozkyMax = array_values(array_unique(array_column(array_filter($res["pozice"], function ($p) { return $p["objekt"] === 1; }), "podlozka")));
+    assertTrue($podlozkyMax === [] || $podlozkyMax === [1], "Více podložek: objekt max jen na 1. podložce");
+    assertSame(10, count(array_filter($res["pozice"], function ($p) { return $p["objekt"] === 0; })), "Více podložek: přesný počet vedle max");
+    $kontrolaPoPodlozkach($res, "Více podložek s max");
+    $res = (new SequentialPrintCalculator([], ["vice_podlozek" => true, "max_podlozek" => 2]))->calculate($dlazdice);
+    assertSame([2, 12, "max_podlozek", 12], [$res["pocet_podlozek"], $res["pocet_instanci"], $res["limit"][0]["duvod"] ?? null, $res["limit"][0]["umisteno"] ?? null], "Více podložek: strop max_podlozek");
+    assertTrue(strpos($res["limit"][0]["popis"], "umístěno 12 z 20 na 2 podložkách") !== false, "Více podložek: popis limitu na stropu");
+    $res = (new SequentialPrintCalculator([], ["vice_podlozek" => true, "max_podlozek" => 999]))->calculate($dlazdice);
+    assertSame(4, $res["pocet_podlozek"], "Více podložek: max_podlozek nad strop se omezí");
+    ok("Více podložek: rozložení na 2+ podložky bez kolize, číslování po podložkách, max jen na 1. podložce, strop ({$pocetScenaru}× regrese).");
+
+    // e) CLI a UI.
+    $cli = $spustCli(json_encode(["objekty" => $dlazdice, "options" => ["vice_podlozek" => true]]));
+    assertSame([0, 4, 20], [$cli["code"], $cli["json"]["pocet_podlozek"] ?? null, $cli["json"]["pocet_instanci"] ?? null], "CLI vice_podlozek (stderr: {$cli["err"]})");
+    assertSame([2, 1, 7], [$cli["json"]["pozice"][6]["podlozka"], $cli["json"]["pozice"][6]["poradi"], $cli["json"]["pozice"][6]["poradi_celkem"]], "CLI vice_podlozek: pozice s podložkou");
+    assertSame(1, $spustCli('{"objekty":[{"x":10,"y":10,"z":10}],"options":{"max_podlozek":0}}')["code"], "CLI: max_podlozek mimo rozsah");
+    assertSame(1, $spustCli('{"objekty":[{"x":10,"y":10,"z":10}],"options":{"vice_podlozek":"ano"}}')["code"], "CLI: vice_podlozek musí být true/false");
+    $get = ["vice_podlozek" => "1", "objekty" => [["x" => "50", "y" => "50", "z" => "10", "instances" => ["d" => "20"], "nazev" => "dlaždice"]]];
+    $html = $spustIndex($get);
+    assertTrue(stripos($html, "Warning") === false && stripos($html, "Notice") === false && stripos($html, "Deprecated") === false, "index.php více podložek: HTML bez warningů");
+    assertTrue(strpos($html, 'id="podlozky_prepinac"') !== false && strpos($html, 'data-podlozka="4"') !== false, "index.php více podložek: záložky podložek");
+    assertTrue(strpos($html, 'class="instance jina-podlozka"') !== false, "index.php více podložek: kusy dalších podložek skryté");
+    assertTrue(strpos($html, 'Na <strong>4</strong> podložky se vleze celkem <strong>20</strong> instancí') !== false, "index.php více podložek: text nad výsledkem");
+    assertTrue(preg_match('/id="vice_podlozek"[^>]*checked="checked"/', $html) === 1, "index.php: volba více podložek zaškrtnutá z GET");
+    $json = json_decode($spustIndex($get + ["format" => "json"]), true);
+    assertSame([4, 20, 4, 2], [$json["pocet_podlozek"], $json["pocet_instanci"], count($json["podlozky"]), $json["pozice"][6]["podlozka"]], "index.php JSON: více podložek");
+    $json = json_decode($spustIndex(["objekty" => $get["objekty"], "format" => "json"]), true);
+    assertSame([1, 6], [$json["pocet_podlozek"], $json["pocet_instanci"]], "index.php JSON: bez volby 1 podložka");
+    ok("Více podložek v CLI (options.vice_podlozek, max_podlozek) a v UI (záložky, tabulka pozic, JSON).");
+
+    // --- Předvolby tiskáren (config/tiskarny.json) ---
+    $mini = ["x" => 180, "y" => 180, "z" => 180, "posun_zprava" => 1, "Xr" => 12, "Xl" => 36.5, "Yr" => 15.5, "Yl" => 15.5, "vodici_tyce_Z" => 21, "vodici_tyce_Y" => 17.4];
+    assertSame("prusa_mini", PredvolbyTiskaren::vychoziId(), "Předvolby: výchozí je Prusa MINI");
+    assertSame($mini, PredvolbyTiskaren::parametry("prusa_mini"), "Předvolby: MINI má dosavadní změřené hodnoty");
+    assertSame($mini, SequentialPrintCalculator::vychoziTiskarna(), "Předvolby: výchozí tiskárna kalkulátoru = předvolba MINI");
+    $vstupMini = [["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]], ["x" => 20, "y" => 30, "z" => 40, "instances" => ["d" => "max"]]];
+    $sPredvolbou = (new SequentialPrintCalculator(PredvolbyTiskaren::sestav("prusa_mini"), []))->calculate($vstupMini);
+    $sVychozi = (new SequentialPrintCalculator([], []))->calculate($vstupMini);
+    $sDrivejsi = (new SequentialPrintCalculator($mini, []))->calculate($vstupMini);
+    assertSame(SequentialPrintCalculator::vystupApi($sVychozi), SequentialPrintCalculator::vystupApi($sPredvolbou), "Předvolby: MINI = výchozí tiskárna");
+    assertSame(SequentialPrintCalculator::vystupApi($sDrivejsi), SequentialPrintCalculator::vystupApi($sPredvolbou), "Předvolby: MINI = dosavadní hodnoty");
+    assertSame(["Xl" => 12.0], array_intersect_key(PredvolbyTiskaren::sestav("prusa_mini", ["Xl" => 12.0]), ["Xl" => 1]), "Předvolby: vlastní hodnoty přepíšou předvolbu");
+    $vyjimka = null;
+    try { PredvolbyTiskaren::parametry("neexistuje"); } catch (InvalidArgumentException $e) { $vyjimka = $e->getMessage(); }
+    assertTrue($vyjimka !== null && strpos($vyjimka, "Neznámá tiskárna 'neexistuje'") !== false, "Předvolby: neznámá předvolba = výjimka");
+    foreach (PredvolbyTiskaren::seznam() as $idPredvolby => $nazevPredvolby) {
+        $data = json_decode(file_get_contents(PredvolbyTiskaren::soubor()), true)["tiskarny"][$idPredvolby];
+        foreach (array_keys($data["parametry"]) as $klic) {
+            assertTrue(isset($data["zdroje"][$klic]) && trim($data["zdroje"][$klic]) !== "", "Předvolby: {$idPredvolby}.{$klic} má uvedený zdroj");
+        }
+    }
+
+    // CLI: "tiskarna" nebo "printer" jako id předvolby; neznámá předvolba = exit 1.
+    $cliVychozi = $spustCli(json_encode(["objekty" => $vstupMini]));
+    $cliMini = $spustCli(json_encode(["objekty" => $vstupMini, "tiskarna" => "prusa_mini"]));
+    $cliMiniPrinter = $spustCli(json_encode(["objekty" => $vstupMini, "printer" => "prusa_mini"]));
+    assertSame([0, 0], [$cliMini["code"], $cliMiniPrinter["code"]], "CLI tiskarna: exit 0 (stderr: {$cliMini["err"]})");
+    assertSame($cliVychozi["json"], $cliMini["json"], "CLI tiskarna prusa_mini = výchozí");
+    assertSame($cliVychozi["json"], $cliMiniPrinter["json"], "CLI printer \"prusa_mini\" = výchozí");
+    $cliPrepis = $spustCli(json_encode(["objekty" => $vstupMini, "tiskarna" => "prusa_mini", "printer" => ["Xl" => 12, "Xr" => 36.5]]));
+    assertSame("zleva_doprava", $cliPrepis["json"]["printer"]["smer_X"] ?? null, "CLI: printer objekt přepíše předvolbu");
+    foreach (['{"objekty":[{"x":10,"y":10,"z":10}],"tiskarna":"neexistuje"}', '{"objekty":[{"x":10,"y":10,"z":10}],"printer":"neexistuje"}', '{"objekty":[{"x":10,"y":10,"z":10}],"tiskarna":5}'] as $vstup) {
+        $cli = $spustCli($vstup);
+        assertSame(1, $cli["code"], "CLI neznámá tiskárna: exit 1 ({$vstup})");
+        assertTrue(isset($cli["json"]["error"]), "CLI neznámá tiskárna: JSON s 'error'");
+    }
+
+    // API (bez DB: API_REQUIRE_KEY=0): neznámá předvolba = chyba, známá = stejný výsledek.
+    $spustApi = function (array $get): ?array {
+        $skript = tempnam(sys_get_temp_dir(), "api");
+        file_put_contents($skript, '<?php putenv("API_REQUIRE_KEY=0"); $_GET = ' . var_export($get, true) . '; include ' . var_export(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'api.php', true) . ';');
+        $cmd = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
+        $proc = proc_open($cmd, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
+        if (!is_resource($proc)) fail("api.php: nelze spustit {$cmd}");
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($proc);
+        unlink($skript);
+        return json_decode($out, true);
+    };
+    $api = $spustApi(["objekty" => [["x" => 10, "y" => 10, "z" => 10]], "tiskarna" => "neexistuje"]);
+    assertTrue(isset($api["error"]) && strpos($api["error"], "Neznámá tiskárna") !== false, "API: neznámá tiskárna = chyba");
+    $api = $spustApi(["objekty" => [["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 20]]], "tiskarna" => "prusa_mini", "options" => ["vice_podlozek" => "1"]]);
+    assertSame([4, 20], [$api["pocet_podlozek"] ?? null, $api["pocet_instanci"] ?? null], "API: tiskarna + options.vice_podlozek");
+
+    // UI: select tiskárny, GET tiskarna, neznámá předvolba = hláška (HTML) / error (JSON).
+    $html = $spustIndex(["tiskarna" => "prusa_mini", "objekty" => [["x" => "50", "y" => "50", "z" => "10", "instances" => ["d" => "3"]]]]);
+    assertTrue(stripos($html, "Warning") === false && stripos($html, "Notice") === false, "index.php tiskarna: bez warningů");
+    assertTrue(preg_match('/<option value="prusa_mini" selected="selected">Prusa MINI/', $html) === 1, "index.php: výběr tiskárny v Nastavení");
+    $html = $spustIndex(["tiskarna" => "<neexistuje>", "objekty" => [["x" => "50", "y" => "50", "z" => "10", "instances" => ["d" => "3"]]]]);
+    assertTrue(stripos($html, "Warning") === false && stripos($html, "Notice") === false, "index.php neznámá tiskárna: bez warningů");
+    assertTrue(strpos($html, 'id="chyba_tiskarny"') !== false && strpos($html, '&lt;neexistuje&gt;') !== false && strpos($html, 'id="tiskova_podlozka"') === false, "index.php neznámá tiskárna: hláška, bez výpočtu");
+    $json = json_decode($spustIndex(["tiskarna" => "neexistuje", "format" => "json", "objekty" => [["x" => "50", "y" => "50", "z" => "10"]]]), true);
+    assertTrue(isset($json["error"]) && strpos($json["error"], "Neznámá tiskárna") !== false, "index.php JSON neznámá tiskárna: error");
+    $json = json_decode($spustIndex(["tiskarna" => "prusa_mini", "format" => "json", "objekty" => [["x" => "50", "y" => "50", "z" => "100", "instances" => ["d" => "3"]]]]), true);
+    $jsonBez = json_decode($spustIndex(["format" => "json", "objekty" => [["x" => "50", "y" => "50", "z" => "100", "instances" => ["d" => "3"]]]]), true);
+    assertSame("prusa_mini", $json["tiskarna"] ?? null, "index.php JSON: id tiskárny");
+    assertSame($jsonBez["pozice"], $json["pozice"], "index.php: předvolba MINI = výchozí");
+    ok("Předvolby tiskáren: MINI = dosavadní výchozí, zdroje hodnot, CLI/API/UI tiskarna, neznámá předvolba = chyba.");
 
     ok("ALL OK");
     exit(0);
