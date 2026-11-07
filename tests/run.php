@@ -45,6 +45,7 @@ function runScenarioCli(array $get): array {
     return [
         "count" => $res["pocet_instanci"],
         "positions" => $res["datova_veta_pole"],
+        "pozice" => $res["pozice"],
     ];
 }
 
@@ -152,6 +153,31 @@ if (PHP_SAPI === 'cli') {
     assertNear($step, $ysOn[1] - $ysOff[1], 0.25, "Y posun instance 2");
     assertNear($step * 5, $ysOn[5] - $ysOff[5], 0.25, "Y posun instance 6");
     ok("Rozprostření v ose Y po instancích funguje.");
+
+    // Pozice s metadaty: ktery objekt, poradi tisku a rada (integrace potrebuji vedet, ktery kus je ktery).
+    // Scenar: organizer gelu 7. 11. 2026 (2 + 2 bunky ruznych rozmeru + 1 vyssi blok).
+    $vstup = [
+        ["x" => 49.79, "y" => 45.95, "z" => 10, "instances" => ["d" => 2]],
+        ["x" => 51.00, "y" => 46.97, "z" => 10, "instances" => ["d" => 2]],
+        ["x" => 80.55, "y" => 40.25, "z" => 11, "instances" => ["d" => 1]],
+    ];
+    $res = runScenarioCli(["objekty" => $vstup]);
+    assertSame(5, $res["count"], "Mix 3 objektů: počet instancí");
+    assertSame(count($res["positions"]), count($res["pozice"]), "pozice má stejně položek jako positions");
+    $poctyObjektu = [];
+    $predchoziRada = 0;
+    foreach ($res["pozice"] as $k => $p) {
+        assertSame($k + 1, $p["poradi"], "poradi jde po jedné v pořadí tisku");
+        assertTrue(isset($vstup[$p["objekt"]]), "objekt je klíč ze vstupu");
+        assertSame($res["positions"][$k], [$p["instance"], $p["X"], $p["Y"]], "pozice odpovídá positions");
+        assertTrue($p["rada"] >= $predchoziRada, "řady v pořadí tisku neklesají");
+        $predchoziRada = $p["rada"];
+        $poctyObjektu[$p["objekt"]] = ($poctyObjektu[$p["objekt"]] ?? 0) + 1;
+    }
+    ksort($poctyObjektu);
+    assertSame([0 => 2, 1 => 2, 2 => 1], $poctyObjektu, "počet instancí každého objektu");
+    assertSame(2, $res["pozice"][count($res["pozice"]) - 1]["objekt"], "nejvyšší objekt (blok) se tiskne poslední");
+    ok("Pozice s metadaty (objekt, pořadí, řada) odpovídají positions.");
 
     ok("ALL OK");
     exit(0);

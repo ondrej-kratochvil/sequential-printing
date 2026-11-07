@@ -31,6 +31,18 @@ Alternativně přímo `index.php`:
 curl 'http://localhost/index.php?format=json&objekty[0][x]=50&objekty[0][y]=50&objekty[0][z]=100&objekty[0][instances][d]=3'
 ```
 
+### Výstup
+
+- `positions`: `[instance, X, Y]` středů instancí v pořadí tisku (zpětně kompatibilní).
+- `pozice`: totéž s metadaty, aby integrace věděla, který kus je který:
+
+```json
+{"poradi": 1, "objekt": 0, "instance": 1, "rada": 1, "X": 154.11, "Y": 22.98}
+```
+
+  `poradi` = pořadí tisku (1, 2, …), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm.
+  Při tisku po objektech dej v sliceru každý kus jako samostatný objekt v pořadí `poradi` (PrusaSlicer pořadí seznamu dodrží).
+
 POST `application/json`:
 
 ```bash

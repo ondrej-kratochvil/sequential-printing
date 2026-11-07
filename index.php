@@ -128,7 +128,7 @@ if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objek
 }
 
 /* Výpočet */
-$pos = $objekty_serazene = $datova_veta_pole = $Xcount_pole = $zbyva_v_ose_X = [];
+$pos = $objekty_serazene = $datova_veta_pole = $pozice = $Xcount_pole = $zbyva_v_ose_X = [];
 $zbyva_v_ose_Y = 0;
 $pocet_instanci = $pocet_rad = $pocet_podlozek = $Xcount = 0;
 $Xcount_min = $Xcount_max = 0;
@@ -170,6 +170,7 @@ if (!empty($objekty)) {
 	$objekty_serazene = $vysledek["objekty_serazene"];
 	$pos = $vysledek["pos"];
 	$datova_veta_pole = $vysledek["datova_veta_pole"];
+	$pozice = $vysledek["pozice"];
 	$datova_veta_json = json_encode($datova_veta_pole);
 	$zbyva_v_ose_X = $vysledek["zbyva_v_ose_X"];
 	$zbyva_v_ose_Y = $vysledek["zbyva_v_ose_Y"];
@@ -210,6 +211,7 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 	echo json_encode(
 		[
 			"positions" => $datova_veta_pole,
+			"pozice" => $pozice,
 			"pocet_instanci" => $pocet_instanci,
 			"pocet_podlozek" => $pocet_podlozek,
 			"objekty" => $objekty,
