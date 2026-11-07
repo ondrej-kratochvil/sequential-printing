@@ -12,7 +12,11 @@ php tests/run.php
 
 - **Počet instancí**: lze zadat číslem, nebo použít `max` (např. `objekty[0][instances][d]=max`).
 - **Rozprostřít instance v ose X**: dorovná zbylé místo v X v rámci řady (rovnoměrně zvětší rozestupy v řadě).
-- **Rozprostřít instance v ose Y**: dorovná zbylé místo v Y **po instancích v pořadí tisku** – 1. instance zůstane na startu směru tisku, další instance se posouvají o rovnoměrný krok.
+- **Název objektu** (`objekty[0][nazev]`, volitelný): krátký text (max 60 znaků, řídicí znaky se nahradí mezerou, okraje se oříznou). Projde do sdíleného odkazu, exportu/importu vstupu, tabulky pozic, vizualizace (tooltip instance) a do JSON výstupu (`pozice[].nazev`, `objekty[].nazev`, `limit[].nazev`). V HTML je vždy escapovaný. Na výpočet nemá vliv.
+- **Rozprostřít instance v ose Y**: dorovná zbylé místo v Y. Způsob určuje `rozprostreni_y_rezim`:
+  - `po_instancich` (výchozí, kvůli kompatibilitě) - **po instancích v pořadí tisku**: 1. instance zůstane na startu směru tisku, každá další se posune o rovnoměrný krok dál (přední řada je schodovitá),
+  - `po_radach` - celá řada se posune o stejný krok, zbylé místo se rozdělí mezi řady (1. řada na startu, poslední u protějšího okraje), kusy v řadě mají stejné Y (u stejně hlubokých kusů bez posunu kvůli vodicím tyčím). Mezery mezi řadami se jen zvětší, takže kolize nepřibudou; výsledek stejně ověří kontrola kolizí.
+  V UI přepínač pod volbou „Rozprostřít instance v ose Y“, v GET `rozprostreni_y_rezim=po_radach`, v CLI a API `options.rozprostreni_y_rezim`. Neznámá hodnota = `po_instancich` (CLI ji odmítne jako chybný vstup).
 - **Rozprostřít po celé podložce**: zkouší měnit počet řad tak, aby se instance využily po celé ploše.
 
 ## CLI (bez DB a bez webového serveru)
@@ -29,14 +33,14 @@ Vstup:
 {
   "objekty": [{"x": 50, "y": 50, "z": 100, "instances": {"d": 3}, "nazev": "krabička"},
               {"x": 20, "y": 20, "z": 10, "instances": {"d": "max"}}],
-  "options": {"rozprostrit_instance_v_ose_x": false},
+  "options": {"rozprostrit_instance_v_ose_x": false, "rozprostreni_y_rezim": "po_radach"},
   "printer": {"Xl": 36.5, "Xr": 12}
 }
 ```
 
-- `objekty` je povinné pole; `instances.d` je celé číslo ≥ 1 nebo `"max"` (bez `instances` = 1 kus); `nazev` je volitelný a propíše se do `pozice` a `objekty` ve výstupu.
+- `objekty` je povinné pole; `instances.d` je celé číslo ≥ 1 nebo `"max"` (bez `instances` = 1 kus); `nazev` je volitelný text a propíše se do `pozice`, `objekty` a `limit` ve výstupu (oříznutý na 60 znaků).
 - `options` a `printer` jsou volitelné, chybějící hodnoty = výchozí jako v UI (Prusa MINI: x/y/z 180, posun_zprava 1, Xr 12, Xl 36.5, Yr 15.5, Yl 15.5, vodici_tyce_Z 21, vodici_tyce_Y 17.4). `printer` může mít i `head_steps`.
-- Výstup (stdout, JSON): stejné klíče jako `api.php` - `positions`, `pozice`, `pocet_instanci`, `pocet_podlozek`, `objekty`, `printer`, `kontrola_kolizi`.
+- Výstup (stdout, JSON): stejné klíče jako `api.php` - `positions`, `pozice`, `pocet_instanci`, `pocet_podlozek`, `objekty`, `printer`, `kontrola_kolizi`, `limit`.
 - Exit code: `0` = OK, `1` = chybný vstup (na stdout `{"error": "..."}`, hláška i na stderr), `2` = výsledek obsahuje kolizi (`kontrola_kolizi.ok = false`; výpočet se tomu snaží zabránit, viz níže).
 
 ## Kontrola kolizí
@@ -88,7 +92,7 @@ curl 'http://localhost/index.php?format=json&objekty[0][x]=50&objekty[0][y]=50&o
 {"poradi": 1, "objekt": 0, "instance": 1, "rada": 1, "X": 154.11, "Y": 22.98}
 ```
 
-  `poradi` = pořadí tisku (1, 2, …), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm.
+  `poradi` = pořadí tisku (1, 2, …), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm, `nazev` = název objektu (jen když je zadaný).
   Při tisku po objektech dej v sliceru každý kus jako samostatný objekt v pořadí `poradi` (PrusaSlicer pořadí seznamu dodrží).
 - `kontrola_kolizi`: výsledek nezávislé kontroly kolizí (viz [Kontrola kolizí](#kontrola-kolizí)):
 
@@ -99,6 +103,23 @@ curl 'http://localhost/index.php?format=json&objekty[0][x]=50&objekty[0][y]=50&o
 ```
 
   `konflikty` / `puvodni_konflikty`: `typ` = `hlava` | `tyce` | `podlozka`, `poradi` = kolidující kus, `s_poradi` = dříve vytištěný kus, do kterého zasahuje, `presah_mm` = o kolik mm. `puvodni_konflikty` je jen u `upraveno: true` (co kontrola našla před úpravou rozmístění).
+
+- `limit`: proč se nevešly všechny požadované instance (prázdné pole = vešlo se vše). Jedna položka na objekt; objekt s počtem `"max"` jen když se nevešel ani jeden kus:
+
+```json
+{"objekt": 0, "nazev": "dlaždice", "pozadovano": 20, "umisteno": 6, "duvod": "misto_y",
+ "popis": "Objekt 1 (dlaždice): umístěno 6 z 20 - další řada se nevejde v ose Y (řady jsou v ose X plné)."}
+```
+
+  `duvod`:
+  - `misto_y` - řady jsou v ose X plné a další řada se nevejde v ose Y (čistě v ose X se výpočet nezastaví, nový kus vždy začne další řadu),
+  - `hlava` - tisková hlava by zasáhla už vytištěné kusy a po odsunutí by se kus nevešel na podložku,
+  - `tyce` - totéž kvůli vodicím tyčím nad vyšším kusem,
+  - `kolize` - kus vynechala kontrola kolizí (viz [Kontrola kolizí](#kontrola-kolizí)),
+  - `rozmer` - rozměr objektu je větší než tisková plocha (objekt se vůbec nepočítá),
+  - `sdilene_misto` - zbylé místo dostaly ostatní objekty (přednost prvního objektu, když se nevešel jeho přesný počet, nebo poměrné rozdělení podle požadovaných počtů).
+
+  UI ukáže totéž pod počtem instancí jako seznam „Nevešlo se vše“.
 
 Výchozí tiskárna (Prusa MINI) a výchozí nastavení jsou na jediném místě: `SequentialPrintCalculator::VYCHOZI_TISKARNA` a `VYCHOZI_NASTAVENI`. Berou je UI, API i CLI; chybějící hodnoty v `printer`/`options` se doplní z nich.
 

@@ -10,7 +10,7 @@
 //    "options": {...}, "printer": {...}}      // options a printer jsou volitelné (výchozí = Prusa MINI jako v UI)
 //
 // Výstup: JSON se stejnými klíči jako api.php (positions, pozice, pocet_instanci, pocet_podlozek,
-// objekty, printer, kontrola_kolizi). Exit code: 0 = OK, 1 = chybný vstup, 2 = výsledek obsahuje kolizi.
+// objekty, printer, kontrola_kolizi, limit). Exit code: 0 = OK, 1 = chybný vstup, 2 = výsledek obsahuje kolizi.
 
 require_once __DIR__ . '/../src/SequentialPrintCalculator.php';
 
@@ -53,6 +53,9 @@ $printer = $vstup['printer'] ?? [];
 $options = $vstup['options'] ?? [];
 if (!is_array($printer)) chybnyVstup("'printer' musí být objekt.");
 if (!is_array($options)) chybnyVstup("'options' musí být objekt.");
+if (isset($options['rozprostreni_y_rezim']) && !in_array($options['rozprostreni_y_rezim'], SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY, true)) {
+    chybnyVstup("'options.rozprostreni_y_rezim' musí být " . implode(' nebo ', SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY) . '.');
+}
 foreach ($printer as $klic => $hodnota) {
     if ($klic === 'head_steps') {
         if (!is_array($hodnota)) chybnyVstup("'printer.head_steps' musí být pole.");
@@ -66,7 +69,6 @@ $objekty = $vstup['objekty'] ?? null;
 if (!is_array($objekty) || empty($objekty)) chybnyVstup("chybí neprázdné pole 'objekty'.");
 if (array_keys($objekty) !== range(0, count($objekty) - 1)) chybnyVstup("'objekty' musí být pole (seznam), ne objekt.");
 
-$nazvy = [];
 foreach ($objekty as $i => $objekt) {
     $cislo = $i + 1;
     if (!is_array($objekt)) chybnyVstup("objekt {$cislo} musí být objekt s x, y, z.");
@@ -89,23 +91,14 @@ foreach ($objekty as $i => $objekt) {
         }
     }
     if (isset($objekt['nazev'])) {
+        // Název propíše do výstupu kalkulátor (pozice, objekty, limit), oříznutý na MAXIMALNI_DELKA_NAZVU znaků.
         if (!is_string($objekt['nazev'])) chybnyVstup("objekt {$cislo}: 'nazev' musí být text.");
-        $nazvy[$i] = $objekt['nazev'];
     }
 }
 
 $calculator = new SequentialPrintCalculator($printer, $options);
 $vystup = SequentialPrintCalculator::vystupApi($calculator->calculate($objekty));
 
-// Volitelné názvy objektů propíšu do výstupu, ať integrace pozná kusy i podle jména.
-if (!empty($nazvy)) {
-    foreach ($vystup['pozice'] as $k => $p) {
-        if (isset($nazvy[$p['objekt']])) $vystup['pozice'][$k]['nazev'] = $nazvy[$p['objekt']];
-    }
-    foreach ($vystup['objekty'] as $id => $_) {
-        if (isset($nazvy[$id])) $vystup['objekty'][$id]['nazev'] = $nazvy[$id];
-    }
-}
 
 fwrite(STDOUT, json_encode($vystup, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n");
 exit((is_array($vystup['kontrola_kolizi']) && $vystup['kontrola_kolizi']['ok']) ? EXIT_OK : EXIT_KOLIZE);

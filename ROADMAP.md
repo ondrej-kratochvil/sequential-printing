@@ -28,6 +28,9 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
   - sjednotit chování tak, aby „99“ (nebo jiná hodnota) **nebyla** implicitně „max“,
   - explicitní „max“ jako volba (UI) nebo speciální hodnota (`"max"`), aby to bylo jednoznačné.
 
+### A2b. Název objektu
+- ~~**Volitelný název objektu** (`nazev`, max 60 znaků)~~ hotovo: tabulka objektů, sdílený odkaz, export/import, tabulka pozic, vizualizace, JSON výstup UI/API/CLI (escapovaný v HTML).
+
 ### A3. Projekty bez účtu (sdílení)
 - **Share link v URL hash** *(ANO – 4.a)*:
   - zkrátit sdílení konfigurace tak, aby se necpalo do query stringu,
@@ -50,6 +53,9 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
   - povolit per objekt (zap/vyp),
   - vybrat nejlepší výsledek (max počet instancí, sekundárně preference rozprostření).
 
+### B2b. Volba rozprostření v ose Y
+- ~~**`rozprostreni_y_rezim`**: `po_instancich` (výchozí) nebo `po_radach` (celá řada o stejný krok, místo rozdělené mezi řady)~~ hotovo: UI přepínač, GET, CLI/API `options`, testy bez kolize v obou režimech.
+
 ### B3. CLI
 - ~~**Výpočet z příkazové řádky** `bin/arrange.php` (JSON ze stdin nebo ze souboru, stejný výstup jako API, exit kódy 0/1/2)~~ hotovo.
 
@@ -61,7 +67,7 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
   - jednotný formát chyb a validačních hlášek.
 - **Metadata ve výstupu** *(ANO – 7.b)*:
   - ~~přidat `order/seq`, `row`~~ hotovo: pole `pozice` (`poradi`, `objekt`, `instance`, `rada`, `X`, `Y`) v UI JSON i `api.php`,
-  - zbývá: důvod limitu (proč víc nešlo).
+  - ~~důvod limitu (proč víc nešlo)~~ hotovo: pole `limit` (objekt, název, požadováno/umístěno, `duvod`, česky `popis`) v UI, JSON UI, `api.php` i CLI.
 
 ### C2. Rate-limit UX
 - **`Retry-After` + standardizace 429** *(ANO – 8.a)*:
