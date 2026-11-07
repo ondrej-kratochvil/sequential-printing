@@ -57,7 +57,8 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
   - oddělit stabilní endpoint od experimentálních (`api.php` může zůstat jako legacy),
   - jednotný formát chyb a validačních hlášek.
 - **Metadata ve výstupu** *(ANO – 7.b)*:
-  - přidat `order/seq`, `row`, případně důvod limitu (proč víc nešlo).
+  - ~~přidat `order/seq`, `row`~~ hotovo: pole `pozice` (`poradi`, `objekt`, `instance`, `rada`, `X`, `Y`) v UI JSON i `api.php`,
+  - zbývá: důvod limitu (proč víc nešlo).
 
 ### C2. Rate-limit UX
 - **`Retry-After` + standardizace 429** *(ANO – 8.a)*:

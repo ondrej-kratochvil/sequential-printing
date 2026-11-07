@@ -41,6 +41,8 @@ class SequentialPrintCalculator
 
     /** @var array */
     private $datovaVetaPole = [];
+    /** Pozice s metadaty v poradi tisku: poradi, objekt (klic ve vstupu), instance, rada, X, Y. */
+    private $poziceDetail = [];
 
     /** @var array */
     private $pocetInstanciObjektu = [];
@@ -208,7 +210,7 @@ class SequentialPrintCalculator
 
     private function resetState(): void
     {
-        $this->pos1 = $this->pos2 = $this->zbyvaVOseX = $this->datovaVetaPole = $this->pocetInstanciObjektu = $this->XcountPole = [];
+        $this->pos1 = $this->pos2 = $this->zbyvaVOseX = $this->datovaVetaPole = $this->poziceDetail = $this->pocetInstanciObjektu = $this->XcountPole = [];
         $this->posunX1 = $this->posunY1 = 0.0;
         $this->pocetInstanci1 = $this->pocetRad1 = 0;
         $this->poziceHranyPrvnihoObjektuVRade = $this->poziceHranyNejvzdalenejsihoObjektu = 0.0;
@@ -365,7 +367,7 @@ class SequentialPrintCalculator
 
     private function vypocitejPoziciInstanci(): void
     {
-        $this->pos1 = $this->pos2 = $this->zbyvaVOseX = $this->datovaVetaPole = $this->pocetInstanciObjektu = $this->XcountPole = [];
+        $this->pos1 = $this->pos2 = $this->zbyvaVOseX = $this->datovaVetaPole = $this->poziceDetail = $this->pocetInstanciObjektu = $this->XcountPole = [];
         $this->posunX1 = $this->posunY1 = 0.0;
         $this->pocetInstanci1 = $this->pocetRad1 = 0;
         $this->poziceHranyPrvnihoObjektuVRade = $this->poziceHranyNejvzdalenejsihoObjektu = 0.0;
@@ -538,11 +540,7 @@ class SequentialPrintCalculator
                         if ($this->printer['smer_Y'] === 'zepredu_dozadu') $this->pos2[1][$yIdx][$xIdx]['Y'] += $shift;
                         else $this->pos2[1][$yIdx][$xIdx]['Y'] -= $shift;
                     }
-                    $this->datovaVetaPole[] = [
-                        $this->pos2[1][$yIdx][$xIdx]['i'],
-                        round($this->pos2[1][$yIdx][$xIdx]['X'], 2),
-                        round($this->pos2[1][$yIdx][$xIdx]['Y'], 2),
-                    ];
+                    $this->pridejPozici($yIdx, $xIdx);
                 }
             }
         } else {
@@ -550,15 +548,31 @@ class SequentialPrintCalculator
             if (isset($this->pos2[1])) {
                 foreach ($this->pos2[1] as $yIdx => $rada) {
                     foreach ($rada as $xIdx => $_objekt1) {
-                        $this->datovaVetaPole[] = [
-                            $this->pos2[1][$yIdx][$xIdx]['i'],
-                            round($this->pos2[1][$yIdx][$xIdx]['X'], 2),
-                            round($this->pos2[1][$yIdx][$xIdx]['Y'], 2),
-                        ];
+                        $this->pridejPozici($yIdx, $xIdx);
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Ulozi vyslednou pozici instance: do datova_veta_pole (zpetne kompatibilni [i, X, Y])
+     * a do pozice (s objektem, poradim tisku a radou, aby integrace vedely, ktery kus je ktery).
+     */
+    private function pridejPozici(int $yIdx, int $xIdx): void
+    {
+        $p = $this->pos2[1][$yIdx][$xIdx];
+        $X = round($p['X'], 2);
+        $Y = round($p['Y'], 2);
+        $this->datovaVetaPole[] = [$p['i'], $X, $Y];
+        $this->poziceDetail[] = [
+            'poradi' => count($this->poziceDetail) + 1,
+            'objekt' => $p['o'] - 1,
+            'instance' => $p['i'],
+            'rada' => $yIdx,
+            'X' => $X,
+            'Y' => $Y,
+        ];
     }
 
     private function prepocitejSRozprostrenimPoCeleTiskovePodlozce(int $parPocetInstanci, int $parPocetRad): void
@@ -734,6 +748,7 @@ class SequentialPrintCalculator
             'objekty_serazene' => $this->objektySerazene,
             'pos' => $pos,
             'datova_veta_pole' => $this->datovaVetaPole,
+            'pozice' => $this->poziceDetail,
             'pocet_instanci' => $this->pocetInstanci1,
             'pocet_rad' => $this->pocetRad1,
             'pocet_podlozek' => $this->pocetPodlozek1,

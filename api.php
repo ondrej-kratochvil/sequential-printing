@@ -84,6 +84,7 @@ $vysledek = $calculator->calculate($objekty);
 echo json_encode(
     [
         "positions" => $vysledek["datova_veta_pole"],
+        "pozice" => $vysledek["pozice"],
         "pocet_instanci" => $vysledek["pocet_instanci"],
         "pocet_podlozek" => $vysledek["pocet_podlozek"],
         "objekty" => $vysledek["objekty"],
