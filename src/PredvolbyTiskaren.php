@@ -95,6 +95,39 @@ class PredvolbyTiskaren
     }
 
     /**
+     * Tisková plocha, do které se musí objekt vejít (mm): x po korekci `posun_zprava`, y a z.
+     * Stejné meze jako výpočet (rozměr nad mez = `limit` s důvodem `rozmer`); bere je validace vstupu
+     * (CLI, API v1) i UI (atribut max u rozměrů objektu).
+     */
+    public static function plocha(array $tiskarna): array
+    {
+        return [
+            'x' => round((float)$tiskarna['x'] - (float)($tiskarna['posun_zprava'] ?? 0), 2),
+            'y' => round((float)$tiskarna['y'], 2),
+            'z' => round((float)$tiskarna['z'], 2),
+        ];
+    }
+
+    /**
+     * Předvolba pro API v1 (printers): id, název, příznak výchozí, parametry, plocha a zdroje hodnot.
+     *
+     * @throws InvalidArgumentException Neznámé id předvolby.
+     */
+    public static function detail($id): array
+    {
+        $parametry = self::parametry($id);
+        $tiskarna = self::data()['tiskarny'][(string)$id];
+        return [
+            'id' => (string)$id,
+            'nazev' => self::seznam()[(string)$id],
+            'vychozi' => (string)$id === self::vychoziId(),
+            'parametry' => $parametry,
+            'plocha' => self::plocha($parametry),
+            'zdroje' => isset($tiskarna['zdroje']) && is_array($tiskarna['zdroje']) ? $tiskarna['zdroje'] : new stdClass(),
+        ];
+    }
+
+    /**
      * Tiskárna pro kalkulátor: parametry předvolby (bez id = výchozí), přes ně vlastní hodnoty `printer`.
      *
      * @throws InvalidArgumentException Neznámé id předvolby.

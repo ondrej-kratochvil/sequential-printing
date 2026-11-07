@@ -97,6 +97,10 @@ if (isset($_GET["tiskarna"]) && $_GET["tiskarna"] !== "") {
 	else $chyba_tiskarny = "Neznámá tiskárna „".(is_string($_GET["tiskarna"]) ? $_GET["tiskarna"] : "?")."“. Dostupné předvolby: ".implode(", ", array_keys($predvolby_tiskaren)).". Výpočet neproběhl.";
 }
 $vychozi_tiskarna = PredvolbyTiskaren::parametry($tiskarna_id);
+// Meze rozměrů objektu podle předvoleb (x po korekci posun_zprava) - atribut max a JS validace v tabulce objektů.
+$plochy_tiskaren = [];
+foreach (array_keys($predvolby_tiskaren) as $id_predvolby) $plochy_tiskaren[$id_predvolby] = PredvolbyTiskaren::plocha(PredvolbyTiskaren::parametry($id_predvolby));
+$plocha_tiskarny = $plochy_tiskaren[$tiskarna_id];
 $tiskova_plocha = [
 	"x" => $vychozi_tiskarna["x"],
 	"y" => $vychozi_tiskarna["y"],
@@ -339,9 +343,9 @@ header("Expires: 0");
 					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
 						<td class="cell_id">${id_objektu + 1}</td>
 						<td><input class="nazev" type="text" name="objekty[${id_objektu}][nazev]" value="${escapeAttr(nazev)}" maxlength="<?php echo SequentialPrintCalculator::MAXIMALNI_DELKA_NAZVU;?>" placeholder="volitelný" /></td>
-						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${escapeAttr(x)}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${escapeAttr(y)}" step="0.01" min="0.1" max="180" required="required" /></td>
-						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${escapeAttr(z)}" step="0.01" min="0.1" max="180" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${escapeAttr(x)}" step="0.01" min="0.1" max="<?php echo $plocha_tiskarny["x"];?>" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${escapeAttr(y)}" step="0.01" min="0.1" max="<?php echo $plocha_tiskarny["y"];?>" required="required" /></td>
+						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${escapeAttr(z)}" step="0.01" min="0.1" max="<?php echo $plocha_tiskarny["z"];?>" required="required" /></td>
 						<td class="instances_cell">
 							<div class="instances_row" style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
 								<input class="instances instances_num" type="number" name="objekty[${id_objektu}][instances][d_num]" value="${escapeAttr(instancesNum)}" step="1" min="1" max="<?php echo MAXIMALNI_POCET_INSTANCI;?>" ${isMax ? "disabled" : "required"} />
@@ -365,6 +369,25 @@ header("Expires: 0");
 					</tr>`
 				);
 				reindex_rows();
+				nastav_max_rozmeru($("#objekt_" + id_objektu));
+			}
+
+			// Meze rozměrů objektu podle vybrané tiskárny (předvolby z config/tiskarny.json, x po korekci posun_zprava).
+			// S povolenou rotací (u objektu nebo všem) stačí, když se objekt vejde otočený, proto x i y do většího rozměru.
+			const PLOCHY_TISKAREN = <?php echo json_encode($plochy_tiskaren, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);?>;
+			const TISKARNA_SERVER = <?php echo json_encode($tiskarna_id, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);?>;
+			function plocha_tiskarny () {
+				const id = $("#tiskarna").val();
+				return PLOCHY_TISKAREN[id] || PLOCHY_TISKAREN[TISKARNA_SERVER];
+			}
+			function nastav_max_rozmeru ($tr) {
+				const plocha = plocha_tiskarny();
+				if (!plocha || !$tr || !$tr.length) return;
+				const rotace = $("#povolit_rotaci_vsem").prop("checked") || $tr.find("input.rotace").prop("checked");
+				const xy = Math.max(plocha.x, plocha.y);
+				$tr.find("input[name$='[x]']").attr("max", rotace ? xy : plocha.x);
+				$tr.find("input[name$='[y]']").attr("max", rotace ? xy : plocha.y);
+				$tr.find("input[name$='[z]']").attr("max", plocha.z);
 			}
 
 			function get_form_state () {
@@ -425,6 +448,8 @@ header("Expires: 0");
 				$("#rozprostrit_instance_po_cele_podlozce").prop("checked", !!n.rozprostrit_instance_po_cele_podlozce);
 				$("#umistit_na_stred_v_ose_x").prop("checked", !!n.umistit_na_stred_v_ose_x);
 				$("#umistit_na_stred_v_ose_y").prop("checked", !!n.umistit_na_stred_v_ose_y);
+				// Meze rozměrů až po nastavení tiskárny a rotace.
+				$("table#objekty tr[data-row='1']").each(function(){ nastav_max_rozmeru($(this)); });
 			}
 
       $(document).ready(function(){
@@ -654,6 +679,15 @@ header("Expires: 0");
 				$(document).on('blur', "input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']", function () {
 					$(this).val(roundTo2($(this).val()));
 					validateRow($(this).closest('tr'));
+				});
+				// Změna tiskárny nebo rotace: přepočítat meze rozměrů a znovu ověřit vyplněné řádky.
+				$(document).on('change', "#tiskarna, #povolit_rotaci_vsem, table#objekty input.rotace", function () {
+					$("table#objekty tr[data-row='1']").each(function(){
+						const $tr = $(this);
+						nastav_max_rozmeru($tr);
+						const vyplneno = $tr.find("input.dim").filter(function(){ return $(this).val() !== ''; }).length > 0;
+						if (vyplneno) validateRow($tr);
+					});
 				});
 				$("form").on('submit', function (e) {
 					$(this).find("input[type='number'][name$='[x]'], input[type='number'][name$='[y]'], input[type='number'][name$='[z]']").each(function(){

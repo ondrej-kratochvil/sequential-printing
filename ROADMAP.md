@@ -63,17 +63,14 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
 ## Milník C – API (bez DB jako default, DB jen pro auth pokud zapnuto)
 
 ### C1. Verze API a stabilní kontrakt
-- **`/api/v1/...`** *(ANO – 7.a)*:
-  - oddělit stabilní endpoint od experimentálních (`api.php` může zůstat jako legacy),
-  - jednotný formát chyb a validačních hlášek.
+- ~~**`/api/v1/...`** *(ANO – 7.a)*: oddělit stabilní endpoint od experimentálních (`api.php` může zůstat jako legacy), jednotný formát chyb a validačních hlášek~~ hotovo: `api/v1/arrange.php` (GET i POST), `printers.php`, `keys.php`, rozcestník `index.php`, bez nutnosti mod_rewrite (volitelný `.htaccess`); sdílená vrstva `src/Api.php`, chyby `{"error": {"code", "message", "details"}}` se statusy 400/401/403/404/405/429/500, validace po polích společná s CLI (`src/VstupVypoctu.php`); `api.php` a `api_keys.php` jako zastaralé tenké obaly se stejným výstupem i formátem chyb.
+- Zbývá: rozhodnout, kdy legacy `api.php` / `api_keys.php` vypnout (zatím jen označené jako zastaralé).
 - **Metadata ve výstupu** *(ANO – 7.b)*:
   - ~~přidat `order/seq`, `row`~~ hotovo: pole `pozice` (`poradi`, `objekt`, `instance`, `rada`, `X`, `Y`) v UI JSON i `api.php`,
   - ~~důvod limitu (proč víc nešlo)~~ hotovo: pole `limit` (objekt, název, požadováno/umístěno, `duvod`, česky `popis`) v UI, JSON UI, `api.php` i CLI.
 
 ### C2. Rate-limit UX
-- **`Retry-After` + standardizace 429** *(ANO – 8.a)*:
-  - při 429 vracet doporučený čas do dalšího okna,
-  - jednotný error payload.
+- ~~**`Retry-After` + standardizace 429** *(ANO – 8.a)*: při 429 vracet doporučený čas do dalšího okna, jednotný error payload~~ hotovo: hlavička `Retry-After` (sekundy do dalšího minutového okna) + `details.retry_after`, u úspěšných odpovědí `X-RateLimit-Limit` / `X-RateLimit-Remaining`, testy čisté funkce i end-to-end proti lokální DB (`TEST_DB_DSN`).
 
 ## Milník D – DB (až nakonec)
 

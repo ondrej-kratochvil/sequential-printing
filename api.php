@@ -1,6 +1,11 @@
 <?php
 /**
- * Jednoduché JSON API pro výpočet rozložení.
+ * ZASTARALÉ (legacy) JSON API pro výpočet rozložení. Nové integrace: /api/v1/arrange.php
+ * (stejný výstup, jednotný formát chyb a validace vstupu, viz README, API v1).
+ *
+ * Chování a výstup zůstávají jako dřív kvůli stávajícím klientům: chyby {"error": "<text>"},
+ * neplatný JSON v POST = použije se GET, rozměr větší než podložka = `limit` s důvodem `rozmer`
+ * (v1 ho odmítne jako chybný vstup). Navíc jen hlavičky Retry-After (429) a X-RateLimit-*.
  *
  * Vstup (POST application/json):
  * {
@@ -10,46 +15,33 @@
  * }
  *
  * Alternativně lze poslat i přes GET ve stejném tvaru jako UI (objekty[..]).
- *
- * Pozn.: autentizace / API klíče budou další krok.
  */
 
-require_once __DIR__ . "/src/SequentialPrintCalculator.php";
-require_once __DIR__ . "/src/ApiAuth.php";
-
-header("Content-Type: application/json; charset=UTF-8");
-
-$jsonError = function (int $status, string $message): void {
-    http_response_code($status);
-    echo json_encode(["error" => $message], JSON_UNESCAPED_UNICODE);
-    exit;
-};
+require_once __DIR__ . "/src/Api.php";
 
 // Autorizace + rate-limit (API klíče)
 try {
-    ApiAuth::requireApiKey();
-} catch (ApiAuthHttpException $e) {
-    $jsonError($e->statusCode, $e->getMessage());
-} catch (Throwable $e) {
-    $jsonError(500, "Chyba při ověření API klíče.");
+	Api::overKlic(true);
+} catch (ApiChyba $e) {
+	Api::odeslatLegacyChybu($e);
 }
 
-$method = isset($_SERVER["REQUEST_METHOD"]) ? $_SERVER["REQUEST_METHOD"] : "GET";
 $input = null;
-
-if ($method === "POST") {
-    $raw = file_get_contents("php://input");
-    $decoded = json_decode($raw, true);
-    if (is_array($decoded)) $input = $decoded;
+if (Api::metoda() === "POST") {
+	$decoded = json_decode(Api::surovyVstup(), true);
+	if (is_array($decoded)) $input = $decoded;
 }
-
 if (!is_array($input)) {
-    $input = $_GET;
+	$input = $_GET;
 }
+
+$chyba = function (string $zprava): void {
+	Api::odeslatLegacyChybu(new ApiChyba(400, "neplatny_vstup", $zprava));
+};
 
 $objekty = isset($input["objekty"]) && is_array($input["objekty"]) ? $input["objekty"] : [];
 if (empty($objekty)) {
-    $jsonError(400, "Chybí pole 'objekty'.");
+	$chyba("Chybí pole 'objekty'.");
 }
 
 // Chybějící hodnoty tiskárny a nastavení doplní předvolba (výchozí Prusa MINI) / VYCHOZI_NASTAVENI
@@ -60,10 +52,11 @@ if (isset($input["printer"]) && is_string($input["printer"]) && $input["printer"
 $printer = (isset($input["printer"]) && is_array($input["printer"])) ? $input["printer"] : [];
 $options = (isset($input["options"]) && is_array($input["options"])) ? $input["options"] : [];
 if ($idTiskarny !== null && !PredvolbyTiskaren::existuje($idTiskarny)) {
-	$jsonError(400, "Neznámá tiskárna '" . (is_scalar($idTiskarny) ? (string)$idTiskarny : "?") . "'. Dostupné předvolby: " . implode(", ", array_keys(PredvolbyTiskaren::seznam())) . ".");
+	$chyba("Neznámá tiskárna '" . (is_scalar($idTiskarny) ? (string)$idTiskarny : "?") . "'. Dostupné předvolby: " . implode(", ", array_keys(PredvolbyTiskaren::seznam())) . ".");
 }
 
-$calculator = new SequentialPrintCalculator(PredvolbyTiskaren::sestav($idTiskarny, $printer), $options);
-$vysledek = $calculator->calculate($objekty);
-
-echo json_encode(SequentialPrintCalculator::vystupApi($vysledek), JSON_UNESCAPED_UNICODE);
+Api::odeslat(200, Api::vypocet([
+	"tiskarna" => PredvolbyTiskaren::sestav($idTiskarny, $printer),
+	"options" => $options,
+	"objekty" => $objekty,
+]));

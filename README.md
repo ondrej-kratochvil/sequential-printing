@@ -8,6 +8,12 @@ Spuštění lokálně:
 php tests/run.php
 ```
 
+Testy nepotřebují DB (API v1 běží s `API_REQUIRE_KEY=0`). Klíč, `X-RateLimit-*` a 429 s `Retry-After` end-to-end se otestují jen proti **lokální** testovací DB ze `db/schema.sql` (test si založí uživatele a klíče a po sobě je smaže):
+
+```bash
+TEST_DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_test;charset=utf8mb4' TEST_DB_USER=root TEST_DB_PASS= php tests/run.php
+```
+
 ## Nastavení v UI (GET parametry)
 
 - **Počet instancí**: lze zadat číslem, nebo použít `max` (např. `objekty[0][instances][d]=max`).
@@ -64,7 +70,9 @@ Jak přidat tiskárnu:
 3. Do `zdroje` napiš u každé hodnoty, odkud je (vlastní měření, odkaz na dokumentaci výrobce, profil PrusaSliceru). Test `php tests/run.php` hlídá, že žádná hodnota nemá prázdný zdroj.
 4. Ověř výsledek (`php tests/run.php`, vizualizace s tiskovou hlavou) a nejlépe zkušební tisk.
 
-Kde se volí: UI (výběr „Tiskárna“ v Nastavení, GET `tiskarna=<id>`, sdílený odkaz, export/import), CLI a API (`"tiskarna": "<id>"` v kořeni vstupu, nebo `"printer": "<id>"` místo objektu). Vlastní hodnoty v objektu `printer` přepíšou hodnoty předvolby (bez `tiskarna` přepisují výchozí MINI, jako dřív). Neznámá předvolba je chyba: CLI exit code 1, `api.php` HTTP 400 s `{"error": ...}`, `index.php?format=json` `{"error": ...}`, UI hláška místo výpočtu.
+Kde se volí: UI (výběr „Tiskárna“ v Nastavení, GET `tiskarna=<id>`, sdílený odkaz, export/import), CLI a API (`"tiskarna": "<id>"` v kořeni vstupu, nebo `"printer": "<id>"` místo objektu). Vlastní hodnoty v objektu `printer` přepíšou hodnoty předvolby (bez `tiskarna` přepisují výchozí MINI, jako dřív). Neznámá předvolba je chyba: CLI exit code 1, API v1 HTTP 404 `neznama_tiskarna` (viz [Formát chyb](#formát-chyb)), legacy `api.php` HTTP 400 s `{"error": ...}`, `index.php?format=json` `{"error": ...}`, UI hláška místo výpočtu. Seznam předvoleb vrací `GET /api/v1/printers.php`.
+
+Rozměry objektu v tabulce UI mají mez (`max`) podle vybrané tiskárny: x = šířka plochy po korekci `posun_zprava`, y a z = plocha (u Prusa MINI 179 / 180 / 180 mm), s povolenou rotací (u objektu nebo všem) x i y do většího z rozměrů. Mez se přepočítá při změně tiskárny nebo rotace a hlídá ji inline validace (JS). Na serveru stejné meze bere validace vstupu CLI a API v1 (`src/VstupVypoctu.php`, rozměr nad mez = chyba 400 u pole); UI a legacy `api.php` objekt nad mez nespočítají a ukážou ho v `limit` s důvodem `rozmer`.
 
 ## CLI (bez DB a bez webového serveru)
 
@@ -90,7 +98,8 @@ Vstup:
 - `objekty` je povinné pole; `instances.d` je celé číslo ≥ 1 nebo `"max"` (bez `instances` = 1 kus); `nazev` je volitelný text a propíše se do `pozice`, `objekty` a `limit` ve výstupu (oříznutý na 60 znaků); `rotace` (`true`/`false`) povolí otočení o 90° (viz [Rotace o 90°](#rotace-o-90)).
 - `options`, `tiskarna` a `printer` jsou volitelné, chybějící hodnoty = výchozí jako v UI (předvolba Prusa MINI z `config/tiskarny.json`: x/y/z 180, posun_zprava 1, Xr 12, Xl 36.5, Yr 15.5, Yl 15.5, vodici_tyce_Z 21, vodici_tyce_Y 17.4). `tiskarna` je id předvolby (viz [Předvolby tiskáren](#předvolby-tiskáren)); `printer` je objekt s vlastními hodnotami (přepíšou předvolbu, může mít i `head_steps`), nebo místo objektu id předvolby. `options.vice_podlozek` (`true`/`false`) a `options.max_podlozek` (1 až 20) viz [Více podložek](#více-podložek).
 - Výstup (stdout, JSON): stejné klíče jako `api.php` - `positions`, `pozice`, `pocet_instanci`, `pocet_podlozek`, `objekty`, `printer`, `kontrola_kolizi`, `limit`, `otocene_objekty`, `podlozky`.
-- Exit code: `0` = OK, `1` = chybný vstup, včetně neznámé předvolby tiskárny (na stdout `{"error": "..."}`, hláška i na stderr), `2` = výsledek obsahuje kolizi (`kontrola_kolizi.ok = false`; výpočet se tomu snaží zabránit, viz níže).
+- Exit code: `0` = OK, `1` = chybný vstup, včetně neznámé předvolby tiskárny (na stdout `{"error": "...", "chyby": [...]}`, hlášky i na stderr), `2` = výsledek obsahuje kolizi (`kontrola_kolizi.ok = false`; výpočet se tomu snaží zabránit, viz níže).
+- Validace vstupu je stejná jako v API v1 (`src/VstupVypoctu.php`): najde všechny chyby najednou. `error` je text se všemi zprávami oddělenými `; ` (jako dřív, jen může být zpráv víc), `chyby` je seznam `{"pole": "objekty[0].x", "zprava": "..."}` stejný jako `details.chyby` v API v1 (u neznámé předvolby chybí).
 
 ## Kontrola kolizí
 
@@ -118,7 +127,75 @@ Při zavedení kontroly se našly a opravily i chyby výpočtu: při tisku zezad
 
 ## API (JSON)
 
-> **Pozor:** UI (`index.php`) funguje i bez DB. API endpointy (`api.php`, `api_keys.php`) vyžadují DB (API klíče + rate limit), pokud explicitně nenastavíš `API_REQUIRE_KEY=0` pro lokální demo.
+> **Pozor:** UI (`index.php`) funguje i bez DB. API endpointy (`api/v1/*.php`, legacy `api.php`, `api_keys.php`) vyžadují DB (API klíče + rate limit), pokud explicitně nenastavíš `API_REQUIRE_KEY=0` pro lokální demo. Správa klíčů vyžaduje DB a platný klíč vždy.
+
+### API v1 (stabilní)
+
+Stabilní kontrakt jsou fyzické soubory v `api/v1/`, takže fungují i bez mod_rewrite (WAMP, Český hosting). Volitelný `api/v1/.htaccess` přidá hezké URL (`/api/v1/arrange` místo `/api/v1/arrange.php`) a předá hlavičku `Authorization` do PHP i u CGI; podmínkou není.
+
+| Endpoint | Metody | Co dělá |
+|---|---|---|
+| `api/v1/arrange.php` | GET, POST | výpočet rozmístění; POST = JSON tělo jako CLI, GET = stejné parametry jako UI a `api.php` |
+| `api/v1/printers.php` | GET | předvolby tiskáren (`id`, `nazev`, `vychozi`, `parametry`, `plocha`, `zdroje`); `?id=<id>` jedna předvolba |
+| `api/v1/keys.php` | GET, POST, DELETE | správa API klíčů (seznam, nový klíč, `?id=` zneplatnění) |
+| `api/v1/` (`index.php`) | GET | verze a seznam endpointů |
+
+```bash
+curl -X POST 'http://localhost/api/v1/arrange.php' \
+  -H 'Authorization: Bearer <api_key>' \
+  -H 'Content-Type: application/json' \
+  -d '{"objekty":[{"x":50,"y":50,"z":100,"instances":{"d":3}}],"tiskarna":"prusa_mini","options":{"vice_podlozek":true}}'
+curl -g 'http://localhost/api/v1/arrange.php?objekty[0][x]=50&objekty[0][y]=50&objekty[0][z]=100&objekty[0][instances][d]=3&options[vice_podlozek]=1' \
+  -H 'X-Api-Key: <api_key>'
+curl 'http://localhost/api/v1/printers.php' -H 'X-Api-Key: <api_key>'
+```
+
+- **Výstup `arrange` (200)** má stejné klíče jako legacy `api.php` a CLI (`SequentialPrintCalculator::vystupApi()`, viz [Výstup](#výstup)).
+- **Validace** je společná s CLI (`src/VstupVypoctu.php`): u POST přísné typy (pravdivostní volby `true`/`false` nebo `0`/`1`, `max_podlozek` celé číslo 1 až 20, `instances.d` celé číslo ≥ 1 nebo `"max"`, rozměry kladné a nejvýš tisková plocha tiskárny, s rotací stačí vejít se otočený). U GET jsou hodnoty texty, takže volby přijmou i `"1"`/`"0"`/`"true"`/`"false"`/prázdné a čísla jako text; prázdné `tiskarna` = výchozí. Na rozdíl od UI a legacy `api.php` v1 objekt nad tiskovou plochu odmítne (400), místo aby ho dal do `limit`.
+- **Správa klíčů** (`keys.php`) má stejné operace a výstup jako legacy `api_keys.php` (viz níže), chyby ve formátu v1: 403 `vyzaduje_klic` (bez klíče, i při `API_REQUIRE_KEY=0`), 400 `neplatny_vstup` (pole `name`, `rate_limit_per_min`, `id`), 404 `klic_nenalezen`.
+
+Kód je na jednom místě: `src/Api.php` (vstup, ověření klíče, odpověď), `src/ApiChyba.php` (formát chyb), `src/VstupVypoctu.php` (validace pro v1 i CLI), `src/SpravaKlicu.php` (klíče pro v1 i legacy). Endpointy jsou jen tenké obaly.
+
+### Formát chyb
+
+API v1 vrací každou chybu stejně, s odpovídajícím HTTP statusem:
+
+```json
+{"error": {"code": "neplatny_vstup", "message": "Vstup obsahuje chyby (2).",
+           "details": {"chyby": [{"pole": "objekty[0].x", "zprava": "objekt 1: 'x' musí být kladné číslo."},
+                                 {"pole": "options.max_podlozek", "zprava": "'options.max_podlozek' musí být celé číslo 1 až 20."}]}}}
+```
+
+`code` je strojový kód (na ten se má integrace vázat), `message` česky pro člověka, `details` je vždy objekt (může být `{}`).
+
+| Status | `code` | Kdy | `details` |
+|---|---|---|---|
+| 400 | `neplatny_json` | POST tělo není JSON objekt | `json_chyba` |
+| 400 | `neplatny_vstup` | chyby vstupu (všechny najednou) | `chyby`: `[{pole, zprava}]`, pole jako `objekty[1].instances.d` (index od 0) |
+| 401 | `chybi_klic`, `neplatny_klic`, `zneplatneny_klic` | chybí / neznámý / zneplatněný API klíč | |
+| 403 | `vyzaduje_klic` | správa klíčů bez platného klíče | |
+| 404 | `neznama_tiskarna` | neznámá předvolba (`tiskarna`, `printer`, `printers.php?id=`) | `tiskarna`, `dostupne` |
+| 404 | `neznamy_endpoint` | neznámá cesta pod `/api/v1/` (jen s `.htaccess`) | `endpoint`, `dostupne` |
+| 404 | `klic_nenalezen` | zneplatnění neexistujícího nebo už zneplatněného klíče | `id` |
+| 405 | `nepovolena_metoda` | metoda, kterou endpoint nepodporuje (+ hlavička `Allow`) | `metoda`, `povolene` |
+| 429 | `prekrocen_limit` | překročen limit klíče (+ hlavička `Retry-After`) | `retry_after`, `limit` |
+| 500 | `interni_chyba`, `chyba_overeni` | chyba serveru / DB při ověření klíče (bez podrobností) | |
+
+Neznámá předvolba má přednost před ostatními chybami vstupu (bez tiskárny nejde ověřit rozměry).
+
+### Rate limit
+
+Každý klíč má `rate_limit_per_min` (0 = bez limitu). Počítá se v minutových oknech v tabulce `api_key_rate_limits` (okno = unix čas zaokrouhlený dolů na minutu, `ApiAuth::zacatekOkna()`), požadavek nad limit vrátí 429.
+
+- **429**: hlavička `Retry-After` = sekundy do začátku dalšího okna (1 až 60, `ApiAuth::sekundDoDalsihoOkna()`), stejná hodnota v `details.retry_after`.
+- **Úspěšné odpovědi** klíče s limitem nesou `X-RateLimit-Limit` (limit za minutu) a `X-RateLimit-Remaining` (kolik požadavků v aktuálním okně zbývá). Bez klíče (`API_REQUIRE_KEY=0`) nebo s limitem 0 tyto hlavičky nejsou.
+- Hlavičky `Retry-After` a `X-RateLimit-*` posílají i legacy endpointy (tělo mají beze změny).
+
+### Legacy endpointy (zastaralé)
+
+> **Zastaralé:** `api.php` a `api_keys.php` zůstávají kvůli stávajícím klientům se stejným chováním a výstupem jako dřív, nové integrace mají používat `/api/v1/`. Jsou to tenké obaly nad stejným kódem (`src/Api.php`, `src/SpravaKlicu.php`).
+
+Formát chyb legacy endpointů se **nemění**: dál vrací `{"error": "<text>"}` (klient, který čte `error` jako text, by se s objektem rozbil) se stejnými texty i statusy (429 dál „Rate limit exceeded.“). Beze změny zůstává i volnější chování `api.php`: neplatný JSON v POST = použije se GET, objekt nad tiskovou plochu = `limit` s důvodem `rozmer`, neznámá předvolba = 400. Přibyly jen hlavičky `Retry-After` a `X-RateLimit-*`.
 
 Lokálně (GET, stejné parametry jako UI):
 
@@ -184,7 +261,7 @@ curl -X POST 'http://localhost/api.php' \
 
 ### Autentizace (API klíče) + rate limit
 
-`api.php` vyžaduje API klíč:
+API v1 i `api.php` vyžadují API klíč:
 - `Authorization: Bearer <api_key>` (doporučeno), nebo
 - `X-Api-Key: <api_key>`
 
