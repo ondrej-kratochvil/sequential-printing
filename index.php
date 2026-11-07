@@ -89,18 +89,20 @@ function array_msort($array, $cols) {
 
 /* Nastavení tiskárny (výchozí – později půjde do DB) */
 
+// Jediný zdroj výchozích hodnot: SequentialPrintCalculator::VYCHOZI_TISKARNA (Prusa MINI).
+$vychozi_tiskarna = SequentialPrintCalculator::VYCHOZI_TISKARNA;
 $tiskova_plocha = [
-	"x" => 180,
-	"y" => 180,
-	"z" => 180
+	"x" => $vychozi_tiskarna["x"],
+	"y" => $vychozi_tiskarna["y"],
+	"z" => $vychozi_tiskarna["z"]
 ];
-$posun_zprava = 1; // Korekce pro PRUSA MINI, kdy objekt umístění zcela vpravo má deformovanou stěnu
-$Xr = "12"; // 10 - pro objekty krátké v ose Y
-$Xl = "36.5";
-$Yr = "15.5"; // 29
-$Yl = "15.5";
-$vodici_tyce_Z = 21;
-$vodici_tyce_Y = "17.4";
+$posun_zprava = $vychozi_tiskarna["posun_zprava"]; // Korekce pro PRUSA MINI, kdy objekt umístění zcela vpravo má deformovanou stěnu
+$Xr = $vychozi_tiskarna["Xr"]; // 10 - pro objekty krátké v ose Y
+$Xl = $vychozi_tiskarna["Xl"];
+$Yr = $vychozi_tiskarna["Yr"]; // 29
+$Yl = $vychozi_tiskarna["Yl"];
+$vodici_tyce_Z = $vychozi_tiskarna["vodici_tyce_Z"];
+$vodici_tyce_Y = $vychozi_tiskarna["vodici_tyce_Y"];
 
 $smer_X = ($Xl <= $Xr ? "zleva_doprava" : "zprava_doleva");
 $smer_Y = ($Yl <= $Yr ? "zepredu_dozadu" : "zezadu_dopredu");
@@ -134,6 +136,7 @@ $pocet_instanci = $pocet_rad = $pocet_podlozek = $Xcount = 0;
 $Xcount_min = $Xcount_max = 0;
 $text_nad_tabulkou = "";
 $datova_veta_json = "[]";
+$kontrola_kolizi = null;
 
 if (!empty($objekty)) {
 	$objekty_input = $objekty; // zachovat pro formulář (aby se hodnoty po odeslání neměnily)
@@ -181,6 +184,7 @@ if (!empty($objekty)) {
 	$Xcount_pole = $vysledek["Xcount_pole"];
 	$Xcount_min = $vysledek["Xcount_min"];
 	$Xcount_max = $vysledek["Xcount_max"];
+	$kontrola_kolizi = $vysledek["kontrola_kolizi"] ?? null;
 
 	if ($pocet_instanci > 0) {
 		$Xcount_string = ($Xcount_min == $Xcount_max ? $Xcount_max : ($Xcount_min."&ndash;".$Xcount_max));
@@ -215,7 +219,8 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 			"pocet_instanci" => $pocet_instanci,
 			"pocet_podlozek" => $pocet_podlozek,
 			"objekty" => $objekty,
-			"printer" => $printer_json
+			"printer" => $printer_json,
+			"kontrola_kolizi" => $kontrola_kolizi
 		],
 		JSON_UNESCAPED_UNICODE
 	);
@@ -1367,6 +1372,29 @@ if ($text_nad_tabulkou) {
 ?>
 		<div class="card" style="margin-top: 14px;" data-has-result="1">
 			<?php echo $text_nad_tabulkou;?>
+<?php
+	if (is_array($kontrola_kolizi)) {
+		// Nezávislá kontrola kolizí (CollisionChecker) - krátce; detaily jen při kolizi nebo když výpočet rozmístění upravil.
+		$kk_popisy = [];
+		if (!$kontrola_kolizi["ok"]) {
+			foreach ($kontrola_kolizi["konflikty"] as $konflikt) $kk_popisy[] = $konflikt["popis"];
+		} elseif (!empty($kontrola_kolizi["upraveno"])) {
+			foreach ($kontrola_kolizi["postup"] as $krok) $kk_popisy[] = $krok;
+		}
+?>
+			<div id="kontrola_kolizi" style="margin-top: 6px; color: var(--muted); font-size: 13px;">
+				Kontrola kolizí: <strong style="color: <?php echo $kontrola_kolizi["ok"] ? "var(--success)" : "var(--danger)";?>;"><?php echo $kontrola_kolizi["ok"] ? "OK" : "KOLIZE";?></strong><?php if ($kontrola_kolizi["ok"] && !empty($kontrola_kolizi["upraveno"])) echo " (rozmístění upraveno, aby kolize nevznikla)";?>
+<?php if (!empty($kk_popisy)) {?>
+				<ul style="margin: 4px 0 0; padding-left: 18px;">
+<?php foreach ($kk_popisy as $kk_popis) {?>
+					<li><?php echo htmlspecialchars($kk_popis, ENT_QUOTES, "UTF-8");?></li>
+<?php }?>
+				</ul>
+<?php }?>
+			</div>
+<?php
+	}
+?>
 		</div>
 
 <?php
