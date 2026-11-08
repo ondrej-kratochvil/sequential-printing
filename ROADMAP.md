@@ -80,9 +80,8 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
 ## Milník D – DB (až nakonec)
 
 ### D1. UI pro správu API klíčů
-- **Základní stránka v UI** *(ANO – 9.a)*:
-  - list/create/revoke přes existující endpointy,
-  - bez potřeby externích CLI skriptů.
+- ~~**Základní stránka v UI** *(ANO – 9.a)*: list/create/revoke bez potřeby externích CLI skriptů~~ hotovo: `ucet.php?stranka=klice` pro přihlášeného uživatele (seznam s prefixem, limitem, posledním použitím a stavem; vytvoření s klíčem ukázaným jen jednou; zneplatnění s potvrzením), sdílená logika `src/SpravaKlicu.php` (UI, `api/v1/keys.php`, `bin/create_api_key.php`). Místo volání HTTP endpointů z prohlížeče volá stránka `SpravaKlicu` přímo, protože `keys.php` vyžaduje API klíč a uživatel v UI je přihlášený session.
+- Zbývá: přejmenování klíče a změna limitu (zatím nový klíč + zneplatnění starého).
 
 ### D2. Uživatelské účty + projekty
 - ~~**Login/registrace + uložení projektů** *(ANO – 10.a, 10.b)*: uložit vstupy (projekty)~~ hotovo: `ucet.php` (registrace, přihlášení, odhlášení; session s HttpOnly/SameSite=Lax/Secure, `session_regenerate_id`, CSRF u všech POST, omezení pokusů v tabulce `login_attempts`, `REGISTRACE=0`), projekty v tabulce `projects` (Uložit projekt / Uložit změny / Uložit jako nový z lišty formuláře, Moje projekty: otevřít, přejmenovat, smazat s potvrzením), `api/v1/projects.php`, migrace `db/migrace/001_ucty_projekty.sql` + `bin/migrace.php`, `bin/admin.php`. Bez DB se účty v UI nezobrazí.

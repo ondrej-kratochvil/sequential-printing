@@ -11,6 +11,7 @@ class StrankaUctu
     /** Položky navigace účtu: stránka => [popis, ikona, jen pro admina]. */
     public const NAVIGACE = [
         'projekty' => ['Moje projekty', 'folder-open', false],
+        'klice' => ['API klíče', 'key', false],
     ];
 
     /** Ikony použité na stránkách účtu (symboly i-*). */
