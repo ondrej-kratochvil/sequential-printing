@@ -94,16 +94,16 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
 
 ### D0. Předvolby tiskáren bez DB
 - ~~**`config/tiskarny.json`**: předvolby se zdrojem každé hodnoty, výchozí MINI jako jediný zdroj výchozí tiskárny~~ hotovo: výběr v UI, GET `tiskarna`, sdílený odkaz, export/import, CLI/API `tiskarna` nebo `printer: "<id>"`, neznámá předvolba = chyba.
-- Zbývá: doplnit další tiskárny (MK4, XL, …), až budou ověřené rozměry hlavy a vodicích tyčí (měření nebo dokumentace výrobce), postup v README.
+- Zbývá: doplnit další tiskárny (MK4, XL, …), až budou ověřené rozměry hlavy a vodicích tyčí (měření nebo dokumentace výrobce), postup v README. Neověřené tiskárny si uživatelé můžou založit v DB (D3) a navrhnout ke zveřejnění.
 
 ### D3. Tiskárny v DB
-- **CRUD tiskáren + schvalování** *(ANO – 11.a, 12.a)*:
-  - uživatelské návrhy (neschválené),
-  - admin schválení,
-  - kopírování tiskárny.
-- **UI pro `head_steps`** *(ANO – 14.a)*:
-  - editace „schodů“ profilu hlavy (z, Xl/Xr/Yl/Yr),
-  - validace monotónnosti `z` a rozsahů.
+- ~~**CRUD tiskáren + schvalování** *(ANO – 11.a, 12.a)*: uživatelské návrhy, admin schválení, kopírování~~ hotovo: Moje tiskárny (`ucet.php?stranka=tiskarny`, koncept / čeká na schválení / schválená, kopie předvolby, návrh úpravy veřejné tiskárny se schválením do původního id), Schvalování (`ucet.php?stranka=schvalovani`, jen `users.is_admin`), schválené tiskárny `db_<číslo>` ve výběru v UI, v `api/v1/printers.php` (dál veřejný a bez klíče), v API výpočtu i CLI (jen s DB), vlastní neschválené jen pro vlastníka; migrace `002_tiskarny.sql`, `src/TiskarnyDb.php`.
+- ~~**UI pro `head_steps`** *(ANO – 14.a)*: editace schodů (z, Xl/Xr/Yl/Yr), validace monotónnosti `z` a rozsahů~~ hotovo ve formuláři tiskárny (přidat / odebrat schod, kontrola v prohlížeči i na serveru, varování u profilu, který se nahoru zužuje). Co kalkulátor se schody dělá: README, Profil hlavy po výškách.
+- Zbývá:
+  - **kontrola kolizí s obálkou schodů**: `CollisionChecker::hlavaProVysku` bere jen schod pro výšku dřívějšího kusu; bezpečné je brát maximum všech schodů do té výšky (u nezužujícího se profilu stejný výsledek). Pak jde zrušit varování a zadávat skutečný tvar hlavy,
+  - kalkulátor bere schod pro výšku umisťovaného kusu (rozmístění je pak u nízkého kusu za vysokým hustší, opraví ho až kontrola posunem); zvážit výšku dřívějších kusů v řadě,
+  - změřit profil hlavy Prusa MINI po výškách (Ondra) a podle výsledku rozhodnout, jestli ho dát do `config/tiskarny.json`,
+  - historie změn tiskárny a důvod vrácení návrhu (zatím jen stav).
 
 ## Neplánované (explicitně zamítnuté)
 

@@ -12,6 +12,8 @@ class StrankaUctu
     public const NAVIGACE = [
         'projekty' => ['Moje projekty', 'folder-open', false],
         'klice' => ['API klíče', 'key', false],
+        'tiskarny' => ['Moje tiskárny', 'printer', false],
+        'schvalovani' => ['Schvalování tiskáren', 'shield-check', true],
     ];
 
     /** Ikony použité na stránkách účtu (symboly i-*). */

@@ -45,15 +45,22 @@ CREATE TABLE IF NOT EXISTS printers (
   name VARCHAR(150) NOT NULL,
   created_by_user_id BIGINT UNSIGNED NULL DEFAULT NULL,
   approved TINYINT(1) NOT NULL DEFAULT 0,
+  navrzeno_at TIMESTAMP NULL DEFAULT NULL, -- návrh na zveřejnění čeká na admina (approved = 0)
   replaces_printer_id BIGINT UNSIGNED NULL DEFAULT NULL, -- když někdo navrhne úpravu, vznikne nový záznam, který nahrazuje původní
 
   bed_x_mm DECIMAL(8,2) NOT NULL,
   bed_y_mm DECIMAL(8,2) NOT NULL,
   bed_z_mm DECIMAL(8,2) NOT NULL,
   posun_zprava_mm DECIMAL(8,2) NOT NULL DEFAULT 0,
+  -- základní rozměry hlavy od trysky (platí od výšky 0), další schody v printer_head_steps
+  xl_mm DECIMAL(8,2) NULL DEFAULT NULL,
+  xr_mm DECIMAL(8,2) NULL DEFAULT NULL,
+  yl_mm DECIMAL(8,2) NULL DEFAULT NULL,
+  yr_mm DECIMAL(8,2) NULL DEFAULT NULL,
 
   vodici_tyce_y_mm DECIMAL(8,2) NOT NULL DEFAULT 0,
   vodici_tyce_z_mm DECIMAL(8,2) NOT NULL DEFAULT 0,
+  poznamka TEXT NULL DEFAULT NULL, -- odkud hodnoty jsou (měření, dokumentace)
 
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -66,8 +73,8 @@ CREATE TABLE IF NOT EXISTS printers (
   CONSTRAINT fk_printers_replaces FOREIGN KEY (replaces_printer_id) REFERENCES printers(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Profil hlavy po výškách (schody).
--- Vyhodnocení ve výpočtu: pro objekt výšky H použiješ nejbližší z <= H.
+-- Profil hlavy po výškách (schody): od výšky z platí rozměry hlavy xl/xr/yl/yr (z > 0; základ od 0 je v printers).
+-- Vyhodnocení ve výpočtu: nejbližší schod z <= H (README, Profil hlavy po výškách).
 CREATE TABLE IF NOT EXISTS printer_head_steps (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   printer_id BIGINT UNSIGNED NOT NULL,
