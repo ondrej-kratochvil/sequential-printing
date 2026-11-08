@@ -9,7 +9,9 @@ require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPAR
 Api::obsluz(function (): void {
     $endpointy = [
         'arrange' => ['soubor' => 'arrange.php', 'metody' => ['GET', 'POST'], 'popis' => 'Výpočet rozmístění objektů pro sekvenční tisk.'],
-        'printers' => ['soubor' => 'printers.php', 'metody' => ['GET'], 'popis' => 'Předvolby tiskáren (?id=<id> jedna předvolba).'],
+        'import' => ['soubor' => 'import.php', 'metody' => ['POST'], 'popis' => 'Import modelu 3MF/STL: rozměry, názvy a počty objektů pro vstup výpočtu.'],
+        'export' => ['soubor' => 'export.php', 'metody' => ['GET', 'POST'], 'popis' => 'Výpočet a export do 3MF (každý kus samostatný objekt v pořadí tisku).'],
+        'printers' =>['soubor' => 'printers.php', 'metody' => ['GET'], 'popis' => 'Předvolby tiskáren (?id=<id> jedna předvolba).'],
         'keys' => ['soubor' => 'keys.php', 'metody' => ['GET', 'POST', 'DELETE'], 'popis' => 'Správa API klíčů (vyžaduje DB).'],
     ];
     if (isset($_GET['endpoint']) && is_scalar($_GET['endpoint']) && trim((string)$_GET['endpoint'], '/') !== '') {
