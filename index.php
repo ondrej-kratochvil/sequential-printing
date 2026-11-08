@@ -113,14 +113,23 @@ $rozprostrit_instance_v_ose_x = (empty($_GET) || (isset($_GET["rozprostrit_insta
 $rozprostrit_instance_v_ose_y = (empty($_GET) || (isset($_GET["rozprostrit_instance_v_ose_y"]) && $_GET["rozprostrit_instance_v_ose_y"]));
 $umistit_na_stred_v_ose_x = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_ose_x"]) && $_GET["umistit_na_stred_v_ose_x"]));
 $umistit_na_stred_v_ose_y = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_ose_y"]) && $_GET["umistit_na_stred_v_ose_y"]));
+// Způsob rozprostření v ose Y: po_instancich (výchozí, kompatibilní) nebo po_radach.
+$rozprostreni_y_rezim = (isset($_GET["rozprostreni_y_rezim"]) && in_array($_GET["rozprostreni_y_rezim"], SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY, true))
+	? $_GET["rozprostreni_y_rezim"]
+	: SequentialPrintCalculator::VYCHOZI_NASTAVENI["rozprostreni_y_rezim"];
 
 /* Objekty (z UI/GET) */
 $objekty = [];
 if (isset($_GET["objekty"]) && is_array($_GET["objekty"]) && !empty($_GET["objekty"])) {
 	$objekty = $_GET["objekty"];
 		foreach ($objekty as $key => $objekt) {
+		if (!is_array($objekt)) {
+			unset($objekty[$key]);
+			continue;
+		}
 		foreach ($objekt as $key1 => $hodnota) {
-			if (is_string($hodnota)) $objekty[$key][$key1] = str_replace(",", ".", $hodnota);
+			// Desetinná čárka jen u čísel, název objektu nechat beze změny.
+			if (is_string($hodnota) && $key1 !== "nazev") $objekty[$key][$key1] = str_replace(",", ".", $hodnota);
 		}
 		// Normalizace rozměrů na max 2 desetinná místa (bez přidávání 0.01).
 		if (isset($objekty[$key]["x"])) $objekty[$key]["x"] = normalize_input_2dp($objekty[$key]["x"]);
@@ -137,6 +146,7 @@ $Xcount_min = $Xcount_max = 0;
 $text_nad_tabulkou = "";
 $datova_veta_json = "[]";
 $kontrola_kolizi = null;
+$limit = [];
 
 if (!empty($objekty)) {
 	$objekty_input = $objekty; // zachovat pro formulář (aby se hodnoty po odeslání neměnily)
@@ -157,7 +167,8 @@ if (!empty($objekty)) {
 		[
 			"rozprostrit_instance_po_cele_podlozce" => $rozprostrit_instance_po_cele_podlozce,
 			"rozprostrit_instance_v_ose_x" => $rozprostrit_instance_v_ose_x,
-			"rozprostrit_instance_v_ose_y" => $rozprostrit_instance_v_ose_y
+			"rozprostrit_instance_v_ose_y" => $rozprostrit_instance_v_ose_y,
+			"rozprostreni_y_rezim" => $rozprostreni_y_rezim
 		]
 	);
 
@@ -169,6 +180,10 @@ if (!empty($objekty)) {
 	foreach ($objekty as $id => $o) {
 		if (!isset($objekty[$id]["instances"])) $objekty[$id]["instances"] = [];
 		if (isset($objekty_vysledek[$id]["instances"]["r"])) $objekty[$id]["instances"]["r"] = $objekty_vysledek[$id]["instances"]["r"];
+		// Název vždy v upravené podobě (oříznutý, bez řídicích znaků); prázdný název z výstupu vypustit.
+		$nazev_objektu = SequentialPrintCalculator::upravNazev($o["nazev"] ?? null);
+		if ($nazev_objektu !== "") $objekty[$id]["nazev"] = $nazev_objektu;
+		else unset($objekty[$id]["nazev"]);
 	}
 	$objekty_serazene = $vysledek["objekty_serazene"];
 	$pos = $vysledek["pos"];
@@ -185,10 +200,13 @@ if (!empty($objekty)) {
 	$Xcount_min = $vysledek["Xcount_min"];
 	$Xcount_max = $vysledek["Xcount_max"];
 	$kontrola_kolizi = $vysledek["kontrola_kolizi"] ?? null;
+	$limit = $vysledek["limit"] ?? [];
 
 	if ($pocet_instanci > 0) {
 		$Xcount_string = ($Xcount_min == $Xcount_max ? $Xcount_max : ($Xcount_min."&ndash;".$Xcount_max));
 		$text_nad_tabulkou = 'Na podložku se '.sklonovani($pocet_instanci, "vleze", "vlezou", "vleze").' <strong>'.$pocet_instanci.'</strong> '.sklonovani($pocet_instanci, "instance", "instance", "instancí").' ('.$Xcount_string.' '.sklonovani($Xcount_max, "instance", "instance", "instancí").' '.sklonovani($pocet_rad, "v", "ve", "v").' '.$pocet_rad.' '.sklonovani($pocet_rad, "řadě", "řadách", "řadách").').';
+	} elseif (!empty($limit)) {
+		$text_nad_tabulkou = 'Na podložku se nevleze <strong>žádná</strong> instance.';
 	}
 }
 
@@ -220,7 +238,8 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 			"pocet_podlozek" => $pocet_podlozek,
 			"objekty" => $objekty,
 			"printer" => $printer_json,
-			"kontrola_kolizi" => $kontrola_kolizi
+			"kontrola_kolizi" => $kontrola_kolizi,
+			"limit" => $limit
 		],
 		JSON_UNESCAPED_UNICODE
 	);
@@ -245,7 +264,8 @@ header("Expires: 0");
 		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.4/jquery.min.js?v=<?php echo htmlspecialchars($APP_VERSION, ENT_QUOTES, "UTF-8");?>"></script>
 		<script>
 			id_objektu = -1;
-			objekty = <?php echo (!empty($objekty) ? json_encode($objekty) : "[]");?>;
+			// JSON_HEX_*: název objektu je uživatelský text - nesmí ukončit <script> ani nic vložit do HTML.
+			objekty = <?php echo (!empty($objekty) ? json_encode(array_values($objekty), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE) : "[]");?>;
 
 			function reindex_rows () {
 				// Přerovná name="objekty[i][...]" podle pořadí řádků, aby server dostal konzistentní pole.
@@ -277,7 +297,7 @@ header("Expires: 0");
 			function pridej_radek_do_tabulky (par_id_objektu) {
 				id_objektu++;
 				if (par_id_objektu) id_objektu = parseInt(par_id_objektu);
-				const { x = "", y = "", z = "" } = objekty[id_objektu] || {};
+				const { x = "", y = "", z = "", nazev = "" } = objekty[id_objektu] || {};
 				instances = (objekty[id_objektu] ? objekty[id_objektu]["instances"]["d"] : "max");
 				const vysledny_pocet_instanci = (objekty[id_objektu] && objekty[id_objektu]["instances"]["r"]) || "";
 				const isMax = (instances === "max");
@@ -286,6 +306,7 @@ header("Expires: 0");
 				$("table#objekty").append(
 					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
 						<td class="cell_id">${id_objektu + 1}</td>
+						<td><input class="nazev" type="text" name="objekty[${id_objektu}][nazev]" value="${escapeAttr(nazev)}" maxlength="<?php echo SequentialPrintCalculator::MAXIMALNI_DELKA_NAZVU;?>" placeholder="volitelný" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${escapeAttr(x)}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${escapeAttr(y)}" step="0.01" min="0.1" max="180" required="required" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${escapeAttr(z)}" step="0.01" min="0.1" max="180" required="required" /></td>
@@ -320,6 +341,7 @@ header("Expires: 0");
 					nastaveni: {
 						rozprostrit_instance_v_ose_x: $("#rozprostrit_instance_v_ose_x").prop("checked") ? 1 : 0,
 						rozprostrit_instance_v_ose_y: $("#rozprostrit_instance_v_ose_y").prop("checked") ? 1 : 0,
+						rozprostreni_y_rezim: $("input[name='rozprostreni_y_rezim']:checked").val() || "po_instancich",
 						rozprostrit_instance_po_cele_podlozce: $("#rozprostrit_instance_po_cele_podlozce").prop("checked") ? 1 : 0,
 						umistit_na_stred_v_ose_x: $("#umistit_na_stred_v_ose_x").prop("checked") ? 1 : 0,
 						umistit_na_stred_v_ose_y: $("#umistit_na_stred_v_ose_y").prop("checked") ? 1 : 0
@@ -332,7 +354,10 @@ header("Expires: 0");
 					const z = $tr.find("input[name$='[z]']").val();
 					const max = $tr.find("input.instances_max").prop("checked");
 					const d = max ? "max" : $tr.find("input.instances_num").val();
-					state.objekty.push({ x: x, y: y, z: z, instances: { d: d } });
+					const nazev = ($tr.find("input.nazev").val() || "").trim();
+					const objekt = { x: x, y: y, z: z, instances: { d: d } };
+					if (nazev !== "") objekt.nazev = nazev;
+					state.objekty.push(objekt);
 				});
 				return state;
 			}
@@ -351,6 +376,7 @@ header("Expires: 0");
 				const n = state?.nastaveni || {};
 				$("#rozprostrit_instance_v_ose_x").prop("checked", !!n.rozprostrit_instance_v_ose_x);
 				$("#rozprostrit_instance_v_ose_y").prop("checked", !!n.rozprostrit_instance_v_ose_y);
+				$("#rozprostreni_y_rezim_" + (n.rozprostreni_y_rezim === "po_radach" ? "po_radach" : "po_instancich")).prop("checked", true);
 				$("#rozprostrit_instance_po_cele_podlozce").prop("checked", !!n.rozprostrit_instance_po_cele_podlozce);
 				$("#umistit_na_stred_v_ose_x").prop("checked", !!n.umistit_na_stred_v_ose_x);
 				$("#umistit_na_stred_v_ose_y").prop("checked", !!n.umistit_na_stred_v_ose_y);
@@ -663,18 +689,26 @@ header("Expires: 0");
 						// Generování share linku v hashi
 						const state = get_form_state();
 						// Minimalizace JSONu pro URL
+						// o: [x, y, z, d, název?] (název jen když je vyplněný - staré odkazy mají 4 prvky),
+						// n[5]: 1 = rozprostření v ose Y po řadách (staré odkazy ho nemají = po instancích).
 						const minState = {
-							o: state.objekty.map(o => [o.x, o.y, o.z, (o.instances && o.instances.d === "max") ? "m" : o.instances.d]),
+							o: state.objekty.map(o => {
+								const arr = [o.x, o.y, o.z, (o.instances && o.instances.d === "max") ? "m" : o.instances.d];
+								if (o.nazev) arr.push(o.nazev);
+								return arr;
+							}),
 							n: [
 								state.nastaveni.rozprostrit_instance_v_ose_x ? 1 : 0,
 								state.nastaveni.rozprostrit_instance_v_ose_y ? 1 : 0,
 								state.nastaveni.rozprostrit_instance_po_cele_podlozce ? 1 : 0,
 								state.nastaveni.umistit_na_stred_v_ose_x ? 1 : 0,
-								state.nastaveni.umistit_na_stred_v_ose_y ? 1 : 0
+								state.nastaveni.umistit_na_stred_v_ose_y ? 1 : 0,
+								state.nastaveni.rozprostreni_y_rezim === "po_radach" ? 1 : 0
 							]
 						};
 						const jsonStr = JSON.stringify(minState);
-						const b64 = btoa(jsonStr);
+						// btoa umí jen Latin-1: název s diakritikou nejdřív převést na UTF-8 bajty.
+						const b64 = btoa(unescape(encodeURIComponent(jsonStr)));
 						const url = window.location.origin + window.location.pathname + '#s=' + b64;
 						
 						await navigator.clipboard.writeText(url);
@@ -693,7 +727,7 @@ header("Expires: 0");
 					
 					try {
 						const b64 = hash.substring(2);
-						const jsonStr = atob(b64);
+						const jsonStr = decodeURIComponent(escape(atob(b64)));
 						const minState = JSON.parse(jsonStr);
 						
 						// Rekonstrukce plného stavu
@@ -703,11 +737,13 @@ header("Expires: 0");
 									x: arr[0],
 									y: arr[1],
 									z: arr[2],
-									instances: { d: (arr[3] === "m" ? "max" : arr[3]) }
+									instances: { d: (arr[3] === "m" ? "max" : arr[3]) },
+									nazev: (typeof arr[4] === "string" ? arr[4] : "")
 								})),
 								nastaveni: {
 									rozprostrit_instance_v_ose_x: !!minState.n[0],
 									rozprostrit_instance_v_ose_y: !!minState.n[1],
+									rozprostreni_y_rezim: (minState.n[5] ? "po_radach" : "po_instancich"),
 									rozprostrit_instance_po_cele_podlozce: !!minState.n[2],
 									umistit_na_stred_v_ose_x: !!minState.n[3],
 									umistit_na_stred_v_ose_y: !!minState.n[4]
@@ -885,7 +921,8 @@ header("Expires: 0");
 					}
 
 					const zInfo = (showRod && printer && printer.vodici_tyce_Z !== undefined) ? `, vodící tyče od Z=${printer.vodici_tyce_Z}mm` : '';
-					setDetails(`Vybráno: Objekt ${o}, instance ${i} — výška ${oz}mm${zInfo}`);
+					const nazevInfo = el.dataset.nazev ? ` (${el.dataset.nazev})` : '';
+					setDetails(`Vybráno: Objekt ${o}${nazevInfo}, instance ${i} — výška ${oz}mm${zInfo}`);
 				}
 
 				function setSelected(idx) {
@@ -905,6 +942,7 @@ header("Expires: 0");
 						// Na klik vždy vyberu instanci (a zobrazím detaily); hlava jen pokud je zapnutá.
 						const o = this.dataset.o || '?';
 						const i = this.dataset.i || '?';
+						// textContent: název objektu se nevkládá jako HTML.
 						setDetails(`Objekt ${o}, instance ${i}\n${this.getAttribute('title') || ''}`);
 						setSelected(idx);
 					}
@@ -1070,6 +1108,17 @@ header("Expires: 0");
 				color: var(--text);
 			}
 			#nastaveni label .hint { color: var(--muted); font-weight: 600; }
+			#nastaveni .sub-options { display: grid; gap: 6px; padding-left: 26px; }
+			table#objekty input.nazev { width: 10rem; min-width: 6rem; }
+			input[type=text] {
+				border-radius: 12px;
+				border: 1px solid var(--border-input);
+				background: var(--bg-input);
+				color: var(--text);
+				padding: 9px 12px;
+				font: inherit;
+			}
+			input[type=text]:focus { outline: 2px solid var(--border-focus); outline-offset: 1px; }
 
 			.remaining-grid { display: grid; grid-template-columns: repeat(2, max-content); gap: 14px; align-items: start; }
 			@media (max-width: 980px) { .remaining-grid { grid-template-columns: 1fr; } }
@@ -1256,6 +1305,7 @@ header("Expires: 0");
 			<table id="objekty">
 				<tr>
 					<th rowspan="2">ID<br />objektu</th>
+					<th rowspan="2">Název</th>
 					<th colspan="3">Rozměry objektu (mm)</th>
 					<th rowspan="2">Požadovaný počet instancí</th>
 					<th rowspan="2">Akce</th>
@@ -1289,6 +1339,16 @@ header("Expires: 0");
 						<input id="rozprostrit_instance_v_ose_y" type="checkbox" name="rozprostrit_instance_v_ose_y" value="1" <?php if($rozprostrit_instance_v_ose_y) {?>checked="checked" <?php }?>/>
 						<span class="hint">Rozprostřít instance v ose Y (rovnoměrně)</span>
 					</label>
+					<div class="sub-options" role="radiogroup" aria-label="Způsob rozprostření v ose Y">
+						<label for="rozprostreni_y_rezim_po_instancich">
+							<input id="rozprostreni_y_rezim_po_instancich" type="radio" name="rozprostreni_y_rezim" value="po_instancich" <?php if($rozprostreni_y_rezim === "po_instancich") {?>checked="checked" <?php }?>/>
+							<span class="hint">po instancích v pořadí tisku (každý další kus o krok dál)</span>
+						</label>
+						<label for="rozprostreni_y_rezim_po_radach">
+							<input id="rozprostreni_y_rezim_po_radach" type="radio" name="rozprostreni_y_rezim" value="po_radach" <?php if($rozprostreni_y_rezim === "po_radach") {?>checked="checked" <?php }?>/>
+							<span class="hint">po řadách (celá řada o stejný krok, mezery mezi řadami)</span>
+						</label>
+					</div>
 					<label for="umistit_na_stred_v_ose_x">
 						<input id="umistit_na_stred_v_ose_x" type="checkbox" name="umistit_na_stred_v_ose_x" value="1" <?php if($umistit_na_stred_v_ose_x) {?>checked="checked" <?php }?>/>
 						<span class="hint">Umístit na střed v ose X</span>
@@ -1373,6 +1433,19 @@ if ($text_nad_tabulkou) {
 		<div class="card" style="margin-top: 14px;" data-has-result="1">
 			<?php echo $text_nad_tabulkou;?>
 <?php
+	if (!empty($limit)) {
+		// Důvod limitu: proč se nevešly všechny požadované instance (text i název objektu escapovat).
+?>
+			<div id="limit" style="margin-top: 6px; font-size: 13px;">
+				Nevešlo se vše:
+				<ul style="margin: 4px 0 0; padding-left: 18px;">
+<?php foreach ($limit as $limit_polozka) {?>
+					<li data-duvod="<?php echo htmlspecialchars($limit_polozka["duvod"], ENT_QUOTES, "UTF-8");?>"><?php echo htmlspecialchars($limit_polozka["popis"], ENT_QUOTES, "UTF-8");?></li>
+<?php }?>
+				</ul>
+			</div>
+<?php
+	}
 	if (is_array($kontrola_kolizi)) {
 		// Nezávislá kontrola kolizí (CollisionChecker) - krátce; detaily jen při kolizi nebo když výpočet rozmístění upravil.
 		$kk_popisy = [];
@@ -1486,6 +1559,7 @@ if (!empty($pos)) {
 					<th>Podložka</th>
 					<th>Řada</th>
 					<th>ID objektu</th>
+					<th>Název</th>
 					<th>Instance</th>
 					<th>X</th>
 					<th>Y</th>
@@ -1504,6 +1578,7 @@ if (!empty($pos)) {
 				if ($y == 1 and $x == 1) echo '<td rowspan="'.$pocet_instanci_na_podlozce.'">'.$p.'</td>';
 				if ($x == 1) echo '<td rowspan="'.$pocet_instanci_v_rade.'">'.$y.'</td>';
 				echo '<td>'.$o.'</td>';
+				echo '<td style="text-align: left;">'.htmlspecialchars($objekty_serazene[($o - 1)]["nazev"] ?? "", ENT_QUOTES, "UTF-8").'</td>';
 				echo '<td>'.$i.'</td>';
 				echo '<td>'.format_cislo($ix, false, 2).'</td>';
 				echo '<td>'.format_cislo($iy, false, 2).'</td>';
@@ -1563,10 +1638,11 @@ if (!empty($pos)) {
 				$bottom_pct = ($vizY > 0 ? ($iy_levy_dolni_roh / $vizY) * 100 : 0);
 				$w_pct = ($vizX > 0 ? ($ox / $vizX) * 100 : 0);
 				$h_pct = ($vizY > 0 ? ($oy / $vizY) * 100 : 0);
-				$title = 'Objekt '.$o.' / instance '.$i."\n".
+				$nazev_objektu = $objekt["nazev"] ?? "";
+				$title = 'Objekt '.$o.($nazev_objektu !== "" ? ' ('.$nazev_objektu.')' : '').' / instance '.$i."\n".
 					'Rozměr: '.format_cislo($ox, false, 2).'×'.format_cislo($oy, false, 2).'×'.format_cislo($oz, false, 2)." mm\n".
 					'Pozice (levý přední roh): '.format_cislo($ix_levy_dolni_roh, false, 2).' ; '.format_cislo($iy_levy_dolni_roh, false, 2).' mm';
-				echo '			  <div class="instance" data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'" data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
+				echo '			  <div class="instance" data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'"'.($nazev_objektu !== "" ? ' data-nazev="'.htmlspecialchars($nazev_objektu, ENT_QUOTES, "UTF-8").'"' : '').' data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
 			}
 		}
 	}

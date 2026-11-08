@@ -13,6 +13,14 @@ class SequentialPrintCalculator
 {
     public const MAXIMALNI_POCET_INSTANCI = 99;
     public const MAXIMALNI_POCET_ITERACI = 99;
+    /** Maximální délka volitelného názvu objektu (znaky). */
+    public const MAXIMALNI_DELKA_NAZVU = 60;
+
+    /** Rozprostření v ose Y: každá další instance v pořadí tisku o krok dál (přední řada je schodovitá). */
+    public const ROZPROSTRENI_Y_PO_INSTANCICH = 'po_instancich';
+    /** Rozprostření v ose Y: celá řada se posune o stejný krok, zbylé místo se rozdělí mezi řady. */
+    public const ROZPROSTRENI_Y_PO_RADACH = 'po_radach';
+    public const ROZPROSTRENI_Y_REZIMY = [self::ROZPROSTRENI_Y_PO_INSTANCICH, self::ROZPROSTRENI_Y_PO_RADACH];
 
     /**
      * Výchozí tiskárna (Prusa MINI) - jediné místo, odkud ji berou UI (index.php), API (api.php) i CLI (bin/arrange.php).
@@ -37,6 +45,7 @@ class SequentialPrintCalculator
         'rozprostrit_instance_po_cele_podlozce' => true,
         'rozprostrit_instance_v_ose_x' => true,
         'rozprostrit_instance_v_ose_y' => true,
+        'rozprostreni_y_rezim' => self::ROZPROSTRENI_Y_PO_INSTANCICH,
     ];
 
     /** @var array */
@@ -118,6 +127,21 @@ class SequentialPrintCalculator
 
     /** @var int Kolik kusů vynechala poslední oprava kolizí. */
     private $pocetVynechanychKusu = 0;
+
+    /** @var array Kolik kusů kterého objektu (klíč ve vstupu) vynechala poslední oprava kolizí. */
+    private $vynechaneKusyObjektu = [];
+
+    /** @var array Objekty vyřazené už při kontrole vstupu (rozměr větší než podložka): klíč => [pozadovano, osa, rozmer, limit, nazev]. */
+    private $vyrazeneObjekty = [];
+
+    /** @var array Objekty zadané s počtem "max" (klíč ve vstupu => true). */
+    private $pozadovanoMax = [];
+
+    /** @var array|null Kde a proč se poslední průchod výpočtu zastavil: ['objekt' => klíč, 'duvod' => misto_y|hlava|tyce]. */
+    private $zastaveni = null;
+
+    /** @var bool Výpočet dal přednost prvnímu objektu (nevešel se jeho přesný počet), ostatní dostaly zbytek místa. */
+    private $prednostPrvnihoObjektu = false;
 
     public function __construct(array $printer, array $options = [])
     {
@@ -248,6 +272,7 @@ class SequentialPrintCalculator
     private function opravKolizePosunemNeboVynechanim(): array
     {
         $this->pocetVynechanychKusu = 0;
+        $this->vynechaneKusyObjektu = [];
         if (empty($this->pos2[1])) return [];
 
         $checker = new CollisionChecker($this->printer);
@@ -291,6 +316,8 @@ class SequentialPrintCalculator
                 if (!$vyreseno || $checker->presahMimoPodlozku($kus) > CollisionChecker::TOLERANCE) {
                     $postup[] = 'Vynechán kus (' . $nazev . '): po posunu mimo kolizi by se nevešel na podložku.';
                     $this->pocetVynechanychKusu++;
+                    $idObjektu = $inst['o'] - 1;
+                    $this->vynechaneKusyObjektu[$idObjektu] = ($this->vynechaneKusyObjektu[$idObjektu] ?? 0) + 1;
                     continue;
                 }
                 if ($posunCelkem > 0.0) {
@@ -396,6 +423,7 @@ class SequentialPrintCalculator
         // 1) Když se nevejde přesný počet prvního objektu, maximalizuj první a zkoušej přidávat další.
         if (!$bylyUmistenyVsechnyPozadovaneNemaximalniInstancePrvnihoObjektu) {
             $this->kromeTechtoObjektu = [$idPrvnihoObjektu];
+            $this->prednostPrvnihoObjektu = true;
             $this->prepocitejSUpravouPozadovanehoPoctuInstanciObjektu(0, $this->kromeTechtoObjektu);
             $maximalniMoznyPocetInstanciPrvnihoObjektu = $this->getObjektR($idPrvnihoObjektu);
             if ($maximalniMoznyPocetInstanciPrvnihoObjektu > 0) {
@@ -490,6 +518,9 @@ class SequentialPrintCalculator
         $this->pomernyPocetVyslednychInstanci = [];
         $this->bylaUmistenaAlesponJednaInstanceObjektu = [];
         $this->kromeTechtoObjektu = [];
+        $this->vynechaneKusyObjektu = [];
+        $this->zastaveni = null;
+        $this->prednostPrvnihoObjektu = false;
     }
 
     private function normalizePrinter(array $printer): array
@@ -558,6 +589,12 @@ class SequentialPrintCalculator
     {
         $out = [];
         foreach (self::VYCHOZI_NASTAVENI as $klic => $vychozi) {
+            if ($klic === 'rozprostreni_y_rezim') {
+                // Neznámá hodnota = výchozí režim (kompatibilita).
+                $rezim = isset($options[$klic]) ? $options[$klic] : $vychozi;
+                $out[$klic] = in_array($rezim, self::ROZPROSTRENI_Y_REZIMY, true) ? $rezim : $vychozi;
+                continue;
+            }
             $out[$klic] = isset($options[$klic]) ? (bool)$options[$klic] : $vychozi;
         }
         return $out;
@@ -566,9 +603,12 @@ class SequentialPrintCalculator
     private function sanitizeObjects(array $objekty): array
     {
         $out = [];
+        $this->vyrazeneObjekty = [];
+        $this->pozadovanoMax = [];
         foreach ($objekty as $id => $objekt) {
             if (!is_array($objekt)) continue;
-            $x = $this->toFloat(isset($objekt['x']) ? $objekt['x'] : null);
+            $nazev = self::upravNazev(isset($objekt['nazev']) ? $objekt['nazev'] : null);
+            $x =$this->toFloat(isset($objekt['x']) ? $objekt['x'] : null);
             $y = $this->toFloat(isset($objekt['y']) ? $objekt['y'] : null);
             $z = $this->toFloat(isset($objekt['z']) ? $objekt['z'] : null);
 
@@ -580,16 +620,34 @@ class SequentialPrintCalculator
 
             // clamp valid
             if ($x <= 0 || $y <= 0 || $z <= 0) continue;
-            if ($x > $this->printer['x'] || $y > $this->printer['y'] || $z > $this->printer['z']) continue;
 
             $instancesD = 1;
+            $jeMax = false;
             if (isset($objekt['instances']) && is_array($objekt['instances']) && array_key_exists('d', $objekt['instances'])) {
                 $instancesD = $objekt['instances']['d'];
-                if ($instancesD === 'max') $instancesD = self::MAXIMALNI_POCET_INSTANCI;
+                if ($instancesD === 'max') {
+                    $jeMax = true;
+                    $instancesD = self::MAXIMALNI_POCET_INSTANCI;
+                }
                 $instancesD = (int)$instancesD;
                 if ($instancesD < 1) $instancesD = 1;
                 if ($instancesD > self::MAXIMALNI_POCET_INSTANCI) $instancesD = self::MAXIMALNI_POCET_INSTANCI;
             }
+
+            // Větší než tisková plocha: objekt se nepočítá, ale důvod se objeví v `limit`.
+            foreach (['x' => $x, 'y' => $y, 'z' => $z] as $osa => $rozmer) {
+                if ($rozmer > $this->printer[$osa]) {
+                    $this->vyrazeneObjekty[$id] = [
+                        'pozadovano' => $jeMax ? 'max' : $instancesD,
+                        'osa' => $osa,
+                        'rozmer' => $rozmer,
+                        'limit' => round($this->printer[$osa], 2),
+                        'nazev' => $nazev,
+                    ];
+                    continue 2;
+                }
+            }
+            if ($jeMax) $this->pozadovanoMax[$id] = true;
 
             $out[$id] = [
                 'x' => $x,
@@ -600,8 +658,24 @@ class SequentialPrintCalculator
                     'r' => 0,
                 ],
             ];
+            if ($nazev !== '') $out[$id]['nazev'] = $nazev;
         }
         return $out;
+    }
+
+    /**
+     * Volitelný název objektu: text bez řídicích znaků, oříznutý, max MAXIMALNI_DELKA_NAZVU znaků.
+     * Neplatné UTF-8 nebo jiný typ než text/číslo = bez názvu. Escapování je až na výstupu (HTML).
+     */
+    public static function upravNazev($nazev): string
+    {
+        if (is_int($nazev) || is_float($nazev)) $nazev = (string)$nazev;
+        if (!is_string($nazev) || !preg_match('//u', $nazev)) return '';
+        $nazev = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $nazev));
+        if (mb_strlen($nazev, 'UTF-8') > self::MAXIMALNI_DELKA_NAZVU) {
+            $nazev = rtrim(mb_substr($nazev, 0, self::MAXIMALNI_DELKA_NAZVU, 'UTF-8'));
+        }
+        return $nazev;
     }
 
     private function sortObjectsStableByZyx(array $objekty): array
@@ -645,6 +719,7 @@ class SequentialPrintCalculator
         $this->zbyvaVOseXMaximalne = $this->zbyvaVOseY = 0.0;
         $this->pocetPodlozek1 = 1;
         $this->Xcount1 = 0;
+        $this->zastaveni = null;
 
         $p1 = 1;
         $x1 = 1;
@@ -670,6 +745,8 @@ class SequentialPrintCalculator
                 $XMezeraMeziInstancemi = ($this->printer['smer_X'] === 'zleva_doprava' ? $head['Xl'] : $head['Xr']);
 
                 $zacalNovouRadu = false;
+                $posunHlavou = false; // posun kvůli hlavě (pro důvod limitu)
+                $posunTycemi = false; // posun kvůli vodicím tyčím (pro důvod limitu)
                 // X
                 if ($this->printer['smer_X'] === 'zleva_doprava') {
                     $presahuje = (($ox + $this->posunX1) > $this->printer['x']);
@@ -722,10 +799,12 @@ class SequentialPrintCalculator
                         foreach ($this->pos1[$p1][$y1] ?? [] as $umistena) {
                             if (($this->hranaOdStartuY($umistena) + $delta) > $this->printer['y']) {
                                 $this->nastavZbyvaVOseY();
+                                $this->zastaveni = ['objekt' => $id, 'duvod' => 'hlava'];
                                 break 3;
                             }
                         }
                         $this->posunY1 = $requiredPosunY;
+                        $posunHlavou = true;
                         // posuň už umístěné instance v aktuální řadě, aby zůstaly konzistentní
                         $this->shiftCurrentRowY($p1, $y1, $delta);
                         // posuň i evidované hrany řady
@@ -746,6 +825,7 @@ class SequentialPrintCalculator
                     && $this->pos1[$p1][$y1][($x1 - 1)]['z'] > $this->printer['vodici_tyce_Z']
                     && $this->pos1[$p1][$y1][($x1 - 1)]['y'] > $this->printer['vodici_tyce_Y']) {
                     $this->posunY1 += ($this->pos1[$p1][$y1][($x1 - 1)]['y'] - $this->printer['vodici_tyce_Y']);
+                    $posunTycemi = true;
                 }
 
                 if ($this->printer['smer_Y'] === 'zepredu_dozadu') $iy = ($oy / 2.0) + $this->posunY1;
@@ -757,6 +837,7 @@ class SequentialPrintCalculator
 
                 if ($hranaOdStartu > $this->printer['y']) {
                     $this->nastavZbyvaVOseY();
+                    $this->zastaveni = ['objekt' => $id, 'duvod' => $posunTycemi ? 'tyce' : ($posunHlavou ? 'hlava' : 'misto_y')];
                     break 2;
                 }
 
@@ -799,8 +880,14 @@ class SequentialPrintCalculator
             // - 1. instance zůstane na startu směru tisku (vpředu / vzadu)
             // - zbývající místo (zbyvaVOseY) se rovnoměrně rozdělí mezi další instance v pořadí tisku
             // => shift(seq) = (zbyvaVOseY / (N - 1)) * (seq - 1), pro seq > 1
-            $stepVOseY = ($this->options['rozprostrit_instance_v_ose_y'] && $this->zbyvaVOseY > 0 && $this->pocetInstanci1 > 1)
-                ? ($this->zbyvaVOseY / ($this->pocetInstanci1 - 1))
+            // Režim po_radach (rozprostreni_y_rezim): celá řada se posune o stejný krok, zbylé místo
+            // se rozdělí mezi řady => shift(rada) = (zbyvaVOseY / (R - 1)) * (rada - 1).
+            // Mezery mezi řadami jen rostou a v rámci řady se nic nemění, takže kolize nepřibudou.
+            $poRadach = ($this->options['rozprostreni_y_rezim'] === self::ROZPROSTRENI_Y_PO_RADACH);
+            $pocetRad = isset($this->pos2[1]) ? count($this->pos2[1]) : 0;
+            $delitel = $poRadach ? ($pocetRad - 1) : ($this->pocetInstanci1 - 1);
+            $stepVOseY = ($this->options['rozprostrit_instance_v_ose_y'] && $this->zbyvaVOseY > 0 && $delitel > 0)
+                ? ($this->zbyvaVOseY / $delitel)
                 : 0.0;
 
             $seq = 0;
@@ -818,8 +905,9 @@ class SequentialPrintCalculator
                         if ($this->printer['smer_X'] === 'zleva_doprava') $this->pos2[1][$yIdx][$xIdx]['X'] += $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
                         else $this->pos2[1][$yIdx][$xIdx]['X'] -= $pripocitamVOseX * ($cikCak ? 1 : ($xIdx - 1));
                     }
-                    if ($stepVOseY > 0.0 && $seq > 1) {
-                        $shift = $stepVOseY * ($seq - 1);
+                    $krokuY = $poRadach ? ($yIdx - 1) : ($seq - 1);
+                    if ($stepVOseY > 0.0 && $krokuY > 0) {
+                        $shift = $stepVOseY * $krokuY;
                         if ($this->printer['smer_Y'] === 'zepredu_dozadu') $this->pos2[1][$yIdx][$xIdx]['Y'] += $shift;
                         else $this->pos2[1][$yIdx][$xIdx]['Y'] -= $shift;
                     }
@@ -856,6 +944,10 @@ class SequentialPrintCalculator
             'X' => $X,
             'Y' => $Y,
         ];
+        $idObjektu = $p['o'] - 1;
+        if (isset($this->objekty[$idObjektu]['nazev'])) {
+            $this->poziceDetail[count($this->poziceDetail) - 1]['nazev'] = $this->objekty[$idObjektu]['nazev'];
+        }
     }
 
     private function prepocitejSRozprostrenimPoCeleTiskovePodlozce(int $parPocetInstanci, int $parPocetRad): void
@@ -1048,6 +1140,7 @@ class SequentialPrintCalculator
             'objekty' => $vysledek['objekty'],
             'printer' => $vysledek['printer'],
             'kontrola_kolizi' => isset($vysledek['kontrola_kolizi']) ? $vysledek['kontrola_kolizi'] : null,
+            'limit' => isset($vysledek['limit']) ? $vysledek['limit'] : [],
         ];
     }
 
@@ -1073,7 +1166,90 @@ class SequentialPrintCalculator
             'Xcount_max' => $XcountMax,
             'zbyva_v_ose_X' => $this->zbyvaVOseX,
             'zbyva_v_ose_Y' => $this->zbyvaVOseY,
+            'limit' => $this->vypocitejLimit(),
         ];
+    }
+
+    /**
+     * Důvod limitu (ROADMAP C1 7.b): u každého objektu, ze kterého se nevešel požadovaný počet
+     * instancí, řekne kolik požadováno/umístěno a proč. Objekty s počtem "max" jen když se nevešel
+     * ani jeden kus. Pořadí = pořadí objektů ve vstupu.
+     *
+     * duvod: rozmer | kolize | hlava | tyce | misto_y | sdilene_misto
+     *
+     * @return array [['objekt', 'nazev'?, 'pozadovano', 'umisteno', 'duvod', 'popis'], ...]
+     */
+    private function vypocitejLimit(): array
+    {
+        $popisy = [
+            'misto_y' => 'další řada se nevejde v ose Y (řady jsou v ose X plné)',
+            'hlava' => 'tisková hlava by zasáhla už vytištěné kusy a po odsunutí by se kus nevešel na podložku',
+            'tyce' => 'vodicí tyče by přejely přes vyšší vytištěný kus a po odsunutí by se kus nevešel na podložku',
+            'sdilene_misto' => $this->prednostPrvnihoObjektu
+                ? 'místo na podložce dostal přednostně objekt ' . $this->cisloObjektu($this->firstKey($this->objekty)) . ' (jeho požadovaný počet se nevešel), na další kusy tohoto objektu už nezbylo'
+                : 'zbylé místo na podložce připadlo ostatním objektům (rozdělení podle požadovaných počtů)',
+        ];
+        $osy = ['x' => 'X', 'y' => 'Y', 'z' => 'Z'];
+
+        // Pořadí ve výpočtu (podle výšky): objekty za tím, u kterého výpočet skončil, už se na řadu nedostaly.
+        $poradiVeVypoctu = array_flip(array_keys($this->objektySerazene));
+        $zastaveniPoradi = ($this->zastaveni !== null && isset($poradiVeVypoctu[$this->zastaveni['objekt']]))
+            ? $poradiVeVypoctu[$this->zastaveni['objekt']] : null;
+
+        $klice = array_keys($this->objekty + $this->vyrazeneObjekty);
+        sort($klice);
+        $limit = [];
+        foreach ($klice as $id) {
+            if (isset($this->vyrazeneObjekty[$id])) {
+                $v = $this->vyrazeneObjekty[$id];
+                $nazev = $v['nazev'];
+                $pozadovano = $v['pozadovano'];
+                $umisteno = 0;
+                $duvod = 'rozmer';
+                $popisDuvodu = 'rozměr v ose ' . $osy[$v['osa']] . ' (' . $v['rozmer'] . ' mm) je větší než tisková plocha (' . $v['limit'] . ' mm)';
+            } else {
+                $o = $this->objekty[$id];
+                $d = (int)$o['instances']['d'];
+                $umisteno = (int)$o['instances']['r'];
+                $jeMax = isset($this->pozadovanoMax[$id]);
+                if ($jeMax ? ($umisteno > 0) : ($umisteno >= $d)) continue;
+                $nazev = isset($o['nazev']) ? $o['nazev'] : '';
+                $pozadovano = $jeMax ? 'max' : $d;
+
+                $vynechano = $this->vynechaneKusyObjektu[$id] ?? 0;
+                if ($vynechano > 0) {
+                    $duvod = 'kolize';
+                    $popisDuvodu = 'kontrola kolizí vynechala ' . $vynechano . ' ' . ($vynechano === 1 ? 'kus' : ($vynechano < 5 ? 'kusy' : 'kusů'))
+                        . ' (po posunu mimo kolizi by se ' . ($vynechano === 1 ? 'nevešel' : 'nevešly') . ' na podložku)';
+                } elseif ($zastaveniPoradi !== null && $poradiVeVypoctu[$id] >= $zastaveniPoradi) {
+                    // U objektu, kde výpočet skončil, i u všech dalších v pořadí platí stejný důvod.
+                    $duvod = $this->zastaveni['duvod'];
+                    $popisDuvodu = $popisy[$duvod];
+                    if ($poradiVeVypoctu[$id] > $zastaveniPoradi) $popisDuvodu .= '; podložku zaplnily dříve tisknuté objekty';
+                } else {
+                    $duvod = 'sdilene_misto';
+                    $popisDuvodu = $popisy[$duvod];
+                }
+            }
+
+            $oznaceni = 'Objekt ' . $this->cisloObjektu($id) .($nazev !== '' ? ' (' . $nazev . ')' : '');
+            $pocty = ($pozadovano === 'max') ? 'nevešel se ani jeden kus' : 'umístěno ' . $umisteno . ' z ' . $pozadovano;
+            $polozka = ['objekt' => $id];
+            if ($nazev !== '') $polozka['nazev'] = $nazev;
+            $limit[] = $polozka + [
+                'pozadovano' => $pozadovano,
+                'umisteno' => $umisteno,
+                'duvod' => $duvod,
+                'popis' => $oznaceni . ': ' . $pocty . ' - ' . $popisDuvodu . '.',
+            ];
+        }
+        return $limit;
+    }
+
+    /** Číslo objektu pro text (jako ID v UI: klíč ve vstupu + 1). */
+    private function cisloObjektu($id): string
+    {
+        return is_int($id) ? (string)($id + 1) : (string)$id;
     }
 }
 

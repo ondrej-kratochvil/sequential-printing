@@ -359,7 +359,159 @@ if (PHP_SAPI === 'cli') {
         assertSame(1, $cli["code"], "CLI chybný vstup ({$popis}): exit code 1");
         assertTrue(isset($cli["json"]["error"]), "CLI chybný vstup ({$popis}): JSON s 'error'");
     }
+    $cli = $spustCli('{"objekty":[{"x":10,"y":10,"z":10}],"options":{"rozprostreni_y_rezim":"spatne"}}');
+    assertSame(1, $cli["code"], "CLI chybný vstup (neznámý rozprostreni_y_rezim): exit code 1");
+    $cli = $spustCli('{"objekty":[{"x":50,"y":50,"z":10,"instances":{"d":20}}],"options":{"rozprostreni_y_rezim":"po_radach"}}');
+    assertSame(0, $cli["code"], "CLI po_radach: exit code 0");
+    assertSame("misto_y", $cli["json"]["limit"][0]["duvod"] ?? null, "CLI: důvod limitu ve výstupu");
     ok("CLI bin/arrange.php: výstup, exit kódy 0/1, vstup ze stdin i ze souboru.");
+
+    // --- Název objektu (nazev) ---
+    $res = (new SequentialPrintCalculator([], []))->calculate([
+        ["x" => 30, "y" => 30, "z" => 10, "instances" => ["d" => 2], "nazev" => "  Krabička\tmalá  "],
+        ["x" => 20, "y" => 20, "z" => 10, "instances" => ["d" => 1], "nazev" => str_repeat("ž", 80)],
+        ["x" => 20, "y" => 20, "z" => 5, "instances" => ["d" => 1], "nazev" => ["pole"]],
+        ["x" => 20, "y" => 20, "z" => 5, "instances" => ["d" => 1]],
+    ]);
+    assertSame("Krabička malá", $res["objekty"][0]["nazev"], "Název: oříznutý, tabulátor nahrazen mezerou");
+    assertSame(SequentialPrintCalculator::MAXIMALNI_DELKA_NAZVU, mb_strlen($res["objekty"][1]["nazev"], "UTF-8"), "Název: max délka (znaky, ne bajty)");
+    assertTrue(!isset($res["objekty"][2]["nazev"]) && !isset($res["objekty"][3]["nazev"]), "Název: neplatný typ nebo chybějící = bez názvu");
+    foreach ($res["pozice"] as $p) {
+        if ($p["objekt"] === 0) assertSame("Krabička malá", $p["nazev"] ?? null, "Název v pozice");
+        if ($p["objekt"] >= 2) assertTrue(!array_key_exists("nazev", $p), "Pozice bez názvu nemá klíč nazev");
+    }
+    $api = SequentialPrintCalculator::vystupApi($res);
+    assertSame("Krabička malá", $api["objekty"][0]["nazev"], "Název ve výstupu API");
+    // Bez názvu: stejné pozice jako dřív (kalkulátor funguje beze změny).
+    $sNazvem = (new SequentialPrintCalculator([], []))->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3], "nazev" => "x"]]);
+    $bezNazvu = (new SequentialPrintCalculator([], []))->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]);
+    assertSame($bezNazvu["datova_veta_pole"], $sNazvem["datova_veta_pole"], "Název nemění výpočet");
+    ok("Název objektu projde do pozice, objekty i API (oříznutý, max 60 znaků).");
+
+    // UI index.php (CLI include přes dočasný skript): název v HTML escapovaný, v JSON výstupu nezměněný.
+    $spustIndex = function (array $get): string {
+        $skript = tempnam(sys_get_temp_dir(), "idx");
+        file_put_contents($skript, '<?php $_GET = ' . var_export($get, true) . '; include ' . var_export(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'index.php', true) . ';');
+        $cmd = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
+        $proc = proc_open($cmd, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
+        if (!is_resource($proc)) fail("index.php: nelze spustit {$cmd}");
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($proc);
+        unlink($skript);
+        return $out;
+    };
+    $zly = '<script>alert("x")</script> & "uvozovky"';
+    $get = [
+        "rozprostrit_instance_v_ose_y" => "1",
+        "rozprostreni_y_rezim" => "po_radach",
+        "objekty" => [
+            ["x" => "50", "y" => "50", "z" => "10", "instances" => ["d" => "20"], "nazev" => $zly],
+            ["x" => "200", "y" => "20", "z" => "10", "instances" => ["d" => "2"], "nazev" => "velký"],
+        ],
+    ];
+    $html = $spustIndex($get);
+    assertTrue(stripos($html, "Warning") === false && stripos($html, "Notice") === false && stripos($html, "Deprecated") === false, "index.php HTML bez warningů");
+    assertTrue(strpos($html, '<script>alert') === false, "index.php: název není v HTML neescapovaný");
+    assertTrue(strpos($html, '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &quot;uvozovky&quot;') !== false, "index.php: název escapovaný (tabulka pozic, vizualizace)");
+    assertTrue(strpos($html, '<script>') !== false, "index.php: název v JS datech escapovaný (JSON_HEX_TAG)");
+    assertTrue(strpos($html, 'id="limit"') !== false && strpos($html, 'data-duvod="rozmer"') !== false && strpos($html, 'data-duvod="misto_y"') !== false, "index.php: důvod limitu v UI");
+    assertTrue(preg_match('/id="rozprostreni_y_rezim_po_radach"[^>]*checked="checked"/', $html) === 1, "index.php: přepínač po řadách zaškrtnutý z GET");
+    $json = json_decode($spustIndex($get + ["format" => "json"]), true);
+    assertTrue(is_array($json), "index.php format=json: platný JSON");
+    assertSame($zly, $json["pozice"][0]["nazev"], "index.php JSON: název v pozice");
+    assertSame($zly, $json["objekty"][0]["nazev"], "index.php JSON: název v objekty");
+    assertSame(["misto_y", "rozmer"], array_column($json["limit"], "duvod"), "index.php JSON: důvody limitu");
+    $html = $spustIndex([]);
+    assertTrue(stripos($html, "Warning") === false && stripos($html, "Notice") === false, "index.php bez parametrů bez warningů");
+    ok("UI: název escapovaný v HTML i v JS datech, JSON výstup s názvem a limitem, přepínač režimu Y.");
+
+    // --- Rozprostření v ose Y: po_instancich vs. po_radach ---
+    $pocetScenaru = 0;
+    foreach ($tiskarny as $nazevTiskarny => [$tiskarna, $smerX, $smerY]) {
+        foreach ($sadyObjektu as $nazevSady => $sada) {
+            $vypnuto = (new SequentialPrintCalculator($tiskarna, ["rozprostrit_instance_v_ose_y" => false]))->calculate($sada);
+            foreach (SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY as $rezim) {
+                $label = "{$nazevTiskarny} / {$nazevSady} / Y {$rezim}";
+                $res = (new SequentialPrintCalculator($tiskarna, ["rozprostreni_y_rezim" => $rezim]))->calculate($sada);
+                assertSame($rezim, $res["options"]["rozprostreni_y_rezim"], "{$label}: režim ve výsledku");
+                assertSame(true, $res["kontrola_kolizi"]["ok"], "{$label}: kontrola_kolizi.ok");
+                $nezavisle = (new CollisionChecker($res["printer"]))->check(CollisionChecker::kusyZVysledku($res["pozice"], $res["objekty"]));
+                assertSame(true, $nezavisle["ok"], "{$label}: nezávislá kontrola výstupu");
+                // Po řadách: posun proti výpočtu bez rozprostření v Y je v celé řadě stejný.
+                if ($rezim === SequentialPrintCalculator::ROZPROSTRENI_Y_PO_RADACH && empty($res["kontrola_kolizi"]["upraveno"]) && empty($vypnuto["kontrola_kolizi"]["upraveno"])
+                    && $res["pocet_instanci"] === $vypnuto["pocet_instanci"]) {
+                    $posunRady = [];
+                    foreach ($res["pozice"] as $k => $p) {
+                        $posun = $p["Y"] - $vypnuto["pozice"][$k]["Y"];
+                        if (isset($posunRady[$p["rada"]])) assertNear($posunRady[$p["rada"]], abs($posun), 0.05, "{$label}: stejný posun Y v řadě {$p["rada"]}");
+                        $posunRady[$p["rada"]] = abs($posun);
+                    }
+                    assertNear(0.0, $posunRady[1] ?? 0.0, 0.05, "{$label}: 1. řada zůstane na startu");
+                }
+                $pocetScenaru++;
+            }
+        }
+    }
+    ok("Oba režimy rozprostření v ose Y bez kolize ({$pocetScenaru}× tiskárna/objekty/režim).");
+
+    // Stejné nízké kusy: po řadách mají v řadě stejné Y, po instancích je řada schodovitá; obojí využije celou podložku.
+    $sada = [["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 6]]];
+    $poRadach = (new SequentialPrintCalculator([], ["rozprostreni_y_rezim" => "po_radach"]))->calculate($sada);
+    $poInstancich = (new SequentialPrintCalculator([], []))->calculate($sada);
+    assertSame(6, $poRadach["pocet_instanci"], "Po řadách: 6 instancí");
+    $yRady = [];
+    foreach ($poRadach["pozice"] as $p) $yRady[$p["rada"]][] = $p["Y"];
+    assertSame(2, count($yRady), "Po řadách: 2 řady");
+    foreach ($yRady as $rada => $ys) assertSame(1, count(array_unique($ys)), "Po řadách: stejné Y v řadě {$rada}");
+    assertNear(25.0, $yRady[1][0], 0.01, "Po řadách: 1. řada u přední hrany");
+    assertNear(155.0, $yRady[2][0], 0.01, "Po řadách: poslední řada u zadní hrany (180 − 25)");
+    $yPrvniRady = array_values(array_map(function ($p) { return $p["Y"]; }, array_filter($poInstancich["pozice"], function ($p) { return $p["rada"] === 1; })));
+    assertTrue(count(array_unique($yPrvniRady)) > 1, "Po instancích: 1. řada je schodovitá (kompatibilní výchozí chování)");
+    assertSame("po_instancich", (new SequentialPrintCalculator([], ["rozprostreni_y_rezim" => "nesmysl"]))->calculate($sada)["options"]["rozprostreni_y_rezim"], "Neznámý režim = výchozí");
+    ok("Rozprostření po řadách: celá řada o stejný krok, zbytek místa mezi řadami.");
+
+    // --- Důvod limitu (ROADMAP C1 7.b) ---
+    $res = (new SequentialPrintCalculator([], []))->calculate([["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 6]]]);
+    assertSame([], $res["limit"], "Limit: vše se vešlo = prázdné pole");
+    assertSame([], SequentialPrintCalculator::vystupApi($res)["limit"], "Limit ve výstupu API");
+
+    $res = (new SequentialPrintCalculator([], []))->calculate([
+        ["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 20], "nazev" => "dlaždice"],
+        ["x" => 15, "y" => 15, "z" => 5, "instances" => ["d" => 4]],
+        ["x" => 300, "y" => 20, "z" => 10, "instances" => ["d" => "max"]],
+        ["x" => 20, "y" => 20, "z" => 10, "instances" => ["d" => "max"]],
+    ]);
+    $limitPodleObjektu = array_column($res["limit"], null, "objekt");
+    assertSame([0, 1, 2, 3], array_keys($limitPodleObjektu), "Limit: objekty, které se nevešly");
+    assertSame(["max", 0], [$limitPodleObjektu[3]["pozadovano"], $limitPodleObjektu[3]["umisteno"]], "Limit: max se uvádí, jen když se nevešel ani jeden kus");
+    $maxOk = (new SequentialPrintCalculator([], []))->calculate([["x" => 20, "y" => 20, "z" => 10, "instances" => ["d" => "max"]]]);
+    assertSame([], $maxOk["limit"], "Limit: max s umístěnými kusy se neuvádí");
+    assertSame(20, $limitPodleObjektu[0]["pozadovano"], "Limit: požadováno");
+    assertSame($res["objekty"][0]["instances"]["r"], $limitPodleObjektu[0]["umisteno"], "Limit: umístěno = instances[r]");
+    assertSame("dlaždice", $limitPodleObjektu[0]["nazev"], "Limit: název objektu");
+    assertSame("misto_y", $limitPodleObjektu[0]["duvod"], "Limit: nedostatek místa v ose Y");
+    assertTrue(strpos($limitPodleObjektu[0]["popis"], "Objekt 1 (dlaždice): umístěno") === 0, "Limit: popis česky s názvem");
+    assertSame("sdilene_misto", $limitPodleObjektu[1]["duvod"], "Limit: místo dostal přednostně 1. objekt");
+    assertSame(["max", 0, "rozmer"], [$limitPodleObjektu[2]["pozadovano"], $limitPodleObjektu[2]["umisteno"], $limitPodleObjektu[2]["duvod"]], "Limit: rozměr větší než podložka");
+    assertTrue(strpos($limitPodleObjektu[2]["popis"], "300 mm") !== false && strpos($limitPodleObjektu[2]["popis"], "179 mm") !== false, "Limit: popis rozměru");
+
+    // Další důvody: hlava, vodicí tyče, kus vynechaný kontrolou kolizí (scénáře nalezené prohledáním).
+    $limitVysledku = function (array $printer, array $options, array $objekty): array {
+        $res = (new SequentialPrintCalculator($printer, $options))->calculate($objekty);
+        assertSame(true, $res["kontrola_kolizi"]["ok"], "Limit: výsledek bez kolize");
+        return $res["limit"][0] ?? [];
+    };
+    $dva = function (float $x, float $y, float $z, int $d): array {
+        return [["x" => $x, "y" => $y, "z" => $z, "instances" => ["d" => $d]], ["x" => 15, "y" => 15, "z" => $z / 2, "instances" => ["d" => 4]]];
+    };
+    assertSame("hlava", $limitVysledku([], [], $dva(20, 60, 30, 6))["duvod"] ?? null, "Limit: zabrání hlava");
+    assertSame("tyce", $limitVysledku([], ["rozprostrit_instance_po_cele_podlozce" => false], $dva(20, 60, 30, 6))["duvod"] ?? null, "Limit: zabrání vodicí tyče");
+    $kolize = $limitVysledku(["Yl" => 30, "Yr" => 10], [], $dva(35, 40, 30, 6));
+    assertSame("kolize", $kolize["duvod"] ?? null, "Limit: kus vynechán kontrolou kolizí");
+    assertTrue(strpos($kolize["popis"], "kontrola kolizí vynechala 1 kus") !== false, "Limit: popis vynechaného kusu");
+    ok("Důvod limitu: objekt, požadováno/umístěno a důvod (místo v Y, přednost objektu, rozměr, hlava, tyče, kolize).");
 
     ok("ALL OK");
     exit(0);
