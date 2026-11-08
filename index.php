@@ -28,6 +28,11 @@ foreach (["upload_max_filesize", "post_max_size"] as $ini_limit) {
 
 /* Funkce */
 
+// Ikona ze SVG spritu (symboly i-* na začátku <body>). Dekorativní: text tlačítka nese význam, proto aria-hidden.
+function ikona($nazev) {
+	return '<svg class="ico" aria-hidden="true" focusable="false"><use href="#i-'.htmlspecialchars($nazev, ENT_QUOTES, "UTF-8").'"/></svg>';
+}
+
 function normalize_input_2dp($v) {
 	if ($v === null) return $v;
 	if (is_string($v)) $v = str_replace(",", ".", $v);
@@ -404,10 +409,10 @@ header("Expires: 0");
 						<td class="rotace_cell"><input class="rotace" type="checkbox" name="objekty[${id_objektu}][rotace]" value="1" ${rotacePovolena ? "checked" : ""} title="Povolit otočení o 90° kolem Z" /></td>
 						<td class="actions">
 							<div style="display:flex; gap:6px; flex-wrap:wrap;">
-								<button class="small row_action" type="button" data-action="up" title="Přesunout nahoru">↑</button>
-								<button class="small row_action" type="button" data-action="down" title="Přesunout dolů">↓</button>
-								<button class="small row_action" type="button" data-action="dup" title="Duplikovat">Duplikovat</button>
-								<button class="small row_action" type="button" data-action="del" title="Smazat">Smazat</button>
+								<button class="small row_action icon-only" type="button" data-action="up" title="Přesunout nahoru" aria-label="Přesunout nahoru"><?php echo ikona("arrow-up");?></button>
+								<button class="small row_action icon-only" type="button" data-action="down" title="Přesunout dolů" aria-label="Přesunout dolů"><?php echo ikona("arrow-down");?></button>
+								<button class="small row_action icon-only" type="button" data-action="dup" title="Duplikovat" aria-label="Duplikovat"><?php echo ikona("copy-plus");?></button>
+								<button class="small row_action icon-only" type="button" data-action="del" title="Smazat" aria-label="Smazat"><?php echo ikona("trash");?></button>
 							</div>
 						</td>
 						<td class="cell_result">${vysledny_pocet_instanci}</td>
@@ -526,6 +531,17 @@ header("Expires: 0");
 				// --- Ukládání/načítání konfigurace bez DB (localStorage) ---
 				const LS_KEY = 'sekvencni_tisk:last_query';
 
+				// Tlačítko s ikonou: měnit jen text v .lbl (ikona zůstane), volitelně i ikonu (id symbolu bez i-).
+				function setBtnLabel(btn, text, ikona) {
+					if (!btn) return;
+					const lbl = btn.querySelector('.lbl');
+					if (lbl) lbl.textContent = text; else btn.textContent = text;
+					if (ikona) {
+						const use = btn.querySelector('svg.ico use');
+						if (use) use.setAttribute('href', '#i-' + ikona);
+					}
+				}
+
 				function setStatus(msg) {
 					const el = document.getElementById('local_status');
 					if (!el) return;
@@ -633,10 +649,10 @@ header("Expires: 0");
 						const isFs = !!getFsElement();
 						if (isFs) {
 							bedCard.classList.add('is-fullscreen');
-							fsBtn.textContent = 'Zavřít Fullscreen';
+							setBtnLabel(fsBtn, 'Zavřít Fullscreen', 'minimize');
 						} else {
 							bedCard.classList.remove('is-fullscreen');
-							fsBtn.textContent = 'Fullscreen';
+							setBtnLabel(fsBtn, 'Fullscreen', 'maximize');
 						}
 					}
 				}
@@ -777,6 +793,30 @@ header("Expires: 0");
 				$(document).on('keydown', function (e) {
 					if (e.key === 'Escape') closeModal();
 				});
+
+				// --- Nabídka „Další funkce“ (<details>): Escape a klik mimo ji zavřou, po volbě položky se zavře sama.
+				const moreMenu = document.getElementById('more_menu');
+				if (moreMenu) {
+					const moreSummary = moreMenu.querySelector('summary');
+					const morePanel = moreMenu.querySelector('.more-menu-panel');
+					moreMenu.addEventListener('toggle', function () {
+						moreSummary.setAttribute('aria-expanded', moreMenu.open ? 'true' : 'false');
+						if (!moreMenu.open) return;
+						// Na úzkém displeji panel nesmí vyjet vpravo mimo obrazovku: zarovnat k pravému okraji tlačítka.
+						moreMenu.classList.remove('align-right');
+						const r = morePanel.getBoundingClientRect();
+						if (r.right > document.documentElement.clientWidth - 8) moreMenu.classList.add('align-right');
+					});
+					document.addEventListener('keydown', function (e) {
+						if (e.key === 'Escape' && moreMenu.open) { moreMenu.open = false; moreSummary.focus(); }
+					});
+					document.addEventListener('click', function (e) {
+						if (moreMenu.open && !moreMenu.contains(e.target)) moreMenu.open = false;
+					});
+					morePanel.addEventListener('click', function (e) {
+						if (e.target.closest('button')) moreMenu.open = false;
+					});
+				}
 				$('#io_copy').on('click', async function () {
 					const el = document.getElementById('io_text');
 					if (!el) return;
@@ -798,8 +838,8 @@ header("Expires: 0");
 					if (!el) return;
 					try {
 						await navigator.clipboard.writeText(el.value);
-						$(this).text('Zkopírováno');
-						setTimeout(() => $(this).text('Kopírovat JSON'), 1200);
+						setBtnLabel(this, 'Zkopírováno', 'check');
+						setTimeout(() => setBtnLabel(this, 'Kopírovat JSON', 'copy'), 1200);
 					} catch (e) {
 						// fallback: select + copy
 						el.focus();
@@ -843,8 +883,10 @@ header("Expires: 0");
 						const url = window.location.origin + window.location.pathname + '#s=' + b64;
 						
 						await navigator.clipboard.writeText(url);
-						$(this).text('Odkaz zkopírován');
-						setTimeout(() => $(this).text('Kopírovat odkaz'), 1200);
+						// Nabídka Další funkce se po kliknutí zavře, potvrzení proto i ve stavovém řádku lišty.
+						setStatus('Odkaz zkopírován');
+						setBtnLabel(this, 'Odkaz zkopírován', 'check');
+						setTimeout(() => setBtnLabel(this, 'Kopírovat odkaz', 'link'), 1200);
 					} catch (e) {
 						setStatus('Nelze zkopírovat odkaz');
 					}
@@ -1178,7 +1220,7 @@ header("Expires: 0");
 				$('#toggle_head').on('click', function () {
 					headEnabled = !headEnabled;
 					$('#head_controls').css('display', headEnabled ? 'inline-flex' : 'none');
-					$(this).text(headEnabled ? 'Skrýt tiskovou hlavu' : 'Zobrazit tiskovou hlavu');
+					setBtnLabel(this, headEnabled ? 'Skrýt tiskovou hlavu' : 'Zobrazit tiskovou hlavu');
 					if (headEnabled) {
 						// Default: 2. instance (pokud existuje)
 						const bed = document.getElementById('tiskova_podlozka');
@@ -1221,7 +1263,7 @@ header("Expires: 0");
 					});
 					document.querySelectorAll('.mobile-section-toggle').forEach(btn => {
 						const label = btn.getAttribute('data-label') || 'sekci';
-						btn.textContent = 'Zobrazit ' + label;
+						setBtnLabel(btn, 'Zobrazit ' + label, 'eye');
 					});
 				}
 				applyMobileCollapse();
@@ -1233,10 +1275,10 @@ header("Expires: 0");
 					const isHidden = el.classList.contains('mobile-hidden');
 					if (isHidden) {
 						el.classList.remove('mobile-hidden');
-						this.textContent = 'Skrýt ' + label;
+						setBtnLabel(this, 'Skrýt ' + label, 'eye-off');
 					} else {
 						el.classList.add('mobile-hidden');
-						this.textContent = 'Zobrazit ' + label;
+						setBtnLabel(this, 'Zobrazit ' + label, 'eye');
 					}
 				});
 			});
@@ -1313,7 +1355,34 @@ header("Expires: 0");
 				padding: 9px 12px;
 				font: inherit;
 			}
-			button { cursor: pointer; }
+			button { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.45em; }
+			/* Ikony (SVG sprite, styl Lucide): velikost podle písma, barva podle textu tlačítka. */
+			.ico { width: 1.1em; height: 1.1em; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+			button.icon-only { padding: 7px 8px; }
+			button.icon-only .ico { width: 1.25em; height: 1.25em; }
+			button:disabled { opacity: 0.6; cursor: progress; }
+			/* Nabídka „Další funkce“ */
+			.more-menu { position: relative; }
+			.more-menu > summary {
+				list-style: none; cursor: pointer; user-select: none;
+				display: inline-flex; align-items: center; gap: 0.45em; height: 100%;
+				border-radius: 12px; border: 1px solid var(--border-input); background: var(--card); color: var(--text); padding: 9px 12px;
+			}
+			.more-menu > summary::-webkit-details-marker { display: none; }
+			.more-menu > summary:hover, .more-menu[open] > summary { background: var(--bg-active); }
+			.more-menu > summary:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+			.more-menu > summary .chevron { width: 0.9em; height: 0.9em; transition: transform 0.12s; }
+			.more-menu[open] > summary .chevron { transform: rotate(180deg); }
+			.more-menu-panel {
+				position: absolute; z-index: 50; top: calc(100% + 6px); left: 0;
+				width: max-content; min-width: 240px; max-width: calc(100vw - 32px);
+				display: flex; flex-direction: column; gap: 2px; padding: 6px;
+				background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+			}
+			.more-menu.align-right .more-menu-panel { left: auto; right: 0; }
+			.more-menu-panel button { justify-content: flex-start; width: 100%; text-align: left; background: transparent; border-color: transparent; border-radius: 8px; }
+			.more-menu-panel button:hover { background: var(--bg-active); }
+			.more-menu-panel .sep { height: 1px; background: var(--border); margin: 4px 6px; }
 			button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 700; }
 			button.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
 			button.ghost { background: var(--card); }
@@ -1546,13 +1615,46 @@ header("Expires: 0");
     </style>
   </head>
   <body>
+		<!-- Ikony: tvary z Lucide (https://lucide.dev, licence ISC), použití <svg class="ico"><use href="#i-…"/></svg> přes ikona() v PHP. -->
+		<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute; overflow:hidden;" aria-hidden="true" focusable="false">
+			<symbol id="i-calculator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></symbol>
+			<symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+			<symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+			<symbol id="i-file-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M12 12v6"/><path d="m15 15-3-3-3 3"/></symbol>
+			<symbol id="i-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+			<symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+			<symbol id="i-lightbulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></symbol>
+			<symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+			<symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+			<symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></symbol>
+			<symbol id="i-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" x2="12" y1="2" y2="15"/></symbol>
+			<symbol id="i-import" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/></symbol>
+			<symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+			<symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+			<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+			<symbol id="i-copy-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="15" x2="15" y1="12" y2="18"/><line x1="12" x2="18" y1="15" y2="15"/><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+			<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+			<symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+			<symbol id="i-arrow-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+			<symbol id="i-arrow-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+			<symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+			<symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+			<symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+			<symbol id="i-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+			<symbol id="i-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+			<symbol id="i-minimize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></symbol>
+			<symbol id="i-crosshair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" x2="18" y1="12" y2="12"/><line x1="6" x2="2" y1="12" y2="12"/><line x1="12" x2="12" y1="6" y2="2"/><line x1="12" x2="12" y1="22" y2="18"/></symbol>
+			<symbol id="i-square-dashed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></symbol>
+			<symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+			<symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+		</svg>
 		<div class="container">
 			<div id="app_header" class="header" title="Zpět na úvod (bez parametrů)">
 				<h1>Sekvenční tisk</h1>
 				<div class="sub">Výpočet rozložení instancí pro sekvenční tisk</div>
 			</div>
 
-		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form" data-label="formulář">Zobrazit formulář</button>
+		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form" data-label="formulář"><?php echo ikona("eye");?><span class="lbl">Zobrazit formulář</span></button>
 		<div id="section_form" class="mobile-section">
 		<form method="get" action="./index.php" class="card">
 			<div class="toolbar" style="margin: 0 0 8px;">
@@ -1643,25 +1745,33 @@ header("Expires: 0");
 				</div>
 			</div>
 
-			<div class="toolbar">
-				<button class="ghost" type="button" onclick="javascript:pridej_radek_do_tabulky();">Přidat řádek</button>
-				<button class="ghost" type="button" onclick="javascript:$('#nastaveni').toggle(120);">Nastavení</button>
-				<button class="ghost" id="example_basic" type="button" title="Vyplní ukázková data">Příklad</button>
-				<button class="ghost" id="save_local" type="button" title="Uloží aktuální odkaz (query) do prohlížeče">Uložit</button>
-				<button class="ghost" id="load_local" type="button" title="Načte uložený odkaz z prohlížeče">Načíst</button>
-				<button class="ghost" id="clear_local" type="button" title="Smaže uložené nastavení">Smazat</button>
-				<button class="ghost" id="export_input" type="button" title="Export vstupu (objekty + nastavení) do JSON">Export</button>
-				<button class="ghost" id="import_input" type="button" title="Import vstupu (objekty + nastavení) z JSON">Import</button>
-				<button class="ghost" id="copy_link" type="button" title="Zkopíruje odkaz pro sdílení konfigurace">Kopírovat odkaz</button>
-				<button class="ghost" id="import_modelu" type="button" title="Načte objekty (rozměry, název, počet) z 3MF z PrusaSliceru nebo ze STL">Import 3MF/STL</button>
+			<div class="toolbar main-toolbar">
+				<button class="primary" type="submit"><?php echo ikona("calculator");?>Vypočítat</button>
+				<button class="ghost" type="button" onclick="javascript:pridej_radek_do_tabulky();"><?php echo ikona("plus");?>Přidat řádek</button>
+				<button class="ghost" type="button" onclick="javascript:$('#nastaveni').toggle(120);"><?php echo ikona("settings");?>Nastavení</button>
+				<button class="ghost" id="import_modelu" type="button" title="Načte objekty (rozměry, název, počet) z 3MF z PrusaSliceru nebo ze STL"><?php echo ikona("file-up");?>Import 3MF/STL</button>
 				<input id="model_soubor" type="file" accept=".3mf,.stl" hidden="hidden" />
 				<input id="sit_token" type="hidden" name="sit_token" value="<?php echo htmlspecialchars($sit_token, ENT_QUOTES, "UTF-8");?>" />
-			  <button class="primary" type="submit">Vypočítat</button>
+				<details id="more_menu" class="more-menu">
+					<summary title="Příklad, uložení do prohlížeče, export a import vstupu, sdílení odkazu" aria-expanded="false"><?php echo ikona("more");?>Další funkce<svg class="ico chevron" aria-hidden="true" focusable="false"><use href="#i-chevron-down"/></svg></summary>
+					<div class="more-menu-panel" role="group" aria-label="Další funkce">
+						<button class="ghost" id="example_basic" type="button" title="Vyplní ukázková data"><?php echo ikona("lightbulb");?>Příklad (ukázková data)</button>
+						<div class="sep" role="separator"></div>
+						<button class="ghost" id="save_local" type="button" title="Uloží aktuální odkaz (query) do prohlížeče"><?php echo ikona("save");?>Uložit do prohlížeče</button>
+						<button class="ghost" id="load_local" type="button" title="Načte uložený odkaz z prohlížeče"><?php echo ikona("folder-open");?>Načíst z prohlížeče</button>
+						<button class="ghost" id="clear_local" type="button" title="Smaže uložené nastavení"><?php echo ikona("trash");?>Smazat uložené v prohlížeči</button>
+						<div class="sep" role="separator"></div>
+						<button class="ghost" id="export_input" type="button" title="Export vstupu (objekty + nastavení) do JSON"><?php echo ikona("share");?>Export vstupu (JSON)</button>
+						<button class="ghost" id="import_input" type="button" title="Import vstupu (objekty + nastavení) z JSON"><?php echo ikona("import");?>Import vstupu (JSON)</button>
+						<div class="sep" role="separator"></div>
+						<button class="ghost" id="copy_link" type="button" title="Zkopíruje odkaz pro sdílení konfigurace"><?php echo ikona("link");?><span class="lbl">Kopírovat odkaz</span></button>
+					</div>
+				</details>
 				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
 			</div>
 			<div style="color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
 				<span id="model_info"><?php if ($sit_token !== "") {?>Nahraný model: export 3MF použije jeho sítě.<?php }?></span>
-				<button class="small ghost" id="model_zapomenout" type="button" title="Export 3MF udělá kvádry zadaných rozměrů"<?php if ($sit_token === "") {?> style="display:none;"<?php }?>>Bez sítí</button>
+				<button class="small ghost" id="model_zapomenout" type="button" title="Export 3MF udělá kvádry zadaných rozměrů"<?php if ($sit_token === "") {?> style="display:none;"<?php }?>><?php echo ikona("box");?>Bez sítí</button>
 			</div>
 		</form>
 		</div>
@@ -1670,13 +1780,13 @@ header("Expires: 0");
 			<div class="panel">
 				<div class="top">
 					<h3 id="io_title">Import/Export</h3>
-					<button id="io_close" class="small" type="button">Zavřít</button>
+					<button id="io_close" class="small" type="button"><?php echo ikona("x");?>Zavřít</button>
 				</div>
 				<div id="io_hint" class="hint"></div>
 				<textarea id="io_text" placeholder='{"objekty":[...],"nastaveni":{...}}'></textarea>
 				<div class="toolbar" style="margin-top: 10px;">
-					<button id="io_copy" class="ghost" type="button">Kopírovat</button>
-					<button id="io_import" class="primary" type="button">Importovat</button>
+					<button id="io_copy" class="ghost" type="button"><?php echo ikona("copy");?>Kopírovat</button>
+					<button id="io_import" class="primary" type="button"><?php echo ikona("import");?>Importovat</button>
 				</div>
 			</div>
 		</div>
@@ -1725,7 +1835,7 @@ if ($text_nad_tabulkou) {
 			<?php echo $text_nad_tabulkou;?>
 <?php if ($pocet_instanci > 0) {?>
 			<div class="toolbar" style="margin: 8px 0 0;">
-				<button id="download_3mf" class="small" type="button" title="Každý kus jako samostatný objekt v pořadí tisku; v PrusaSliceru zapni tisk po objektech (Complete individual objects)">Stáhnout 3MF<?php if ($pocet_podlozek > 1) {?> (ZIP, <?php echo (int)$pocet_podlozek.' '.sklonovani($pocet_podlozek, "podložka", "podložky", "podložek");?>)<?php }?></button>
+				<button id="download_3mf" class="small" type="button" title="Každý kus jako samostatný objekt v pořadí tisku; v PrusaSliceru zapni tisk po objektech (Complete individual objects)"><?php echo ikona("download");?>Stáhnout 3MF<?php if ($pocet_podlozek > 1) {?> (ZIP, <?php echo (int)$pocet_podlozek.' '.sklonovani($pocet_podlozek, "podložka", "podložky", "podložek");?>)<?php }?></button>
 				<span style="color: var(--muted); font-size: 13px; align-self: center;"><?php echo $sit_token !== "" ? "se sítěmi nahraného modelu" : "kusy jako kvádry zadaných rozměrů";?></span>
 			</div>
 <?php }?>
@@ -1785,7 +1895,7 @@ if ($text_nad_tabulkou) {
 if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 ?>
 		<div class="toolbar" style="margin-top: 14px;">
-		  <button class="ghost" type="button" onclick="javascript:$('#zbyvajici_misto').toggle(120);">Zobrazit/skrýt zbývající místo</button>
+		  <button class="ghost" type="button" onclick="javascript:$('#zbyvajici_misto').toggle(120);"><?php echo ikona("square-dashed");?>Zobrazit/skrýt zbývající místo</button>
 		</div>
 
 		<div id="zbyvajici_misto" style="margin-top: 10px;">
@@ -1858,7 +1968,7 @@ if (!empty($zbyva_v_ose_X) or $zbyva_v_ose_Y) {
 if (!empty($pos)) {
 ?>
 		<div class="layout" style="margin-top: 14px;">
-			<button id="toggle_section_positions" class="ghost small mobile-section-toggle" type="button" data-target="#section_positions" data-label="pozice instancí">Zobrazit pozice instancí</button>
+			<button id="toggle_section_positions" class="ghost small mobile-section-toggle" type="button" data-target="#section_positions" data-label="pozice instancí"><?php echo ikona("eye");?><span class="lbl">Zobrazit pozice instancí</span></button>
 			<div id="section_positions" class="card mobile-section">
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<h2 class="card-title">Pozice instancí</h2>
@@ -1917,11 +2027,11 @@ if (!empty($pos)) {
 			<div class="card">
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<h2 style="margin:0; flex:1;">Vizualizace</h2>
-					<button id="fullscreen_toggle" class="small ghost" type="button" title="Celá obrazovka">Fullscreen</button>
-					<button id="toggle_head" class="small ghost" type="button">Zobrazit tiskovou hlavu</button>
+					<button id="fullscreen_toggle" class="small ghost" type="button" title="Celá obrazovka"><?php echo ikona("maximize");?><span class="lbl">Fullscreen</span></button>
+					<button id="toggle_head" class="small ghost" type="button"><?php echo ikona("crosshair");?><span class="lbl">Zobrazit tiskovou hlavu</span></button>
 					<span id="head_controls" style="display:none; gap:6px; align-items:center;">
-						<button id="head_prev" class="small ghost" type="button" title="Předchozí instance">←</button>
-						<button id="head_next" class="small ghost" type="button" title="Další instance">→</button>
+						<button id="head_prev" class="small ghost icon-only" type="button" title="Předchozí instance" aria-label="Předchozí instance"><?php echo ikona("chevron-left");?></button>
+						<button id="head_next" class="small ghost icon-only" type="button" title="Další instance" aria-label="Další instance"><?php echo ikona("chevron-right");?></button>
 					</span>
 				</div>
 				<?php
@@ -1939,7 +2049,7 @@ if (!empty($pos)) {
 		$pocet_na_podlozce = 0;
 		foreach ($podlozka as $rada) $pocet_na_podlozce += count($rada);
 ?>
-					<button class="small ghost podlozka_tab<?php if ($p === 1) echo " active";?>" type="button" role="tab" aria-selected="<?php echo $p === 1 ? "true" : "false";?>" data-podlozka="<?php echo $p;?>" title="<?php echo $pocet_na_podlozce.' '.sklonovani($pocet_na_podlozce, "kus", "kusy", "kusů");?>">Podložka <?php echo $p;?> (<?php echo $pocet_na_podlozce;?>)</button>
+					<button class="small ghost podlozka_tab<?php if ($p === 1) echo " active";?>" type="button" role="tab" aria-selected="<?php echo $p === 1 ? "true" : "false";?>" data-podlozka="<?php echo $p;?>" title="<?php echo $pocet_na_podlozce.' '.sklonovani($pocet_na_podlozce, "kus", "kusy", "kusů");?>"><?php echo ikona("layers");?>Podložka <?php echo $p;?> (<?php echo $pocet_na_podlozce;?>)</button>
 <?php }?>
 				</div>
 <?php }?>
@@ -1985,12 +2095,12 @@ if (!empty($pos)) {
 				<div id="instance_details" style="margin-top: 10px; color: var(--muted); font-size: 13px; white-space: pre-wrap;"></div>
 			</div>
 
-			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json" data-label="JSON">Zobrazit JSON</button>
+			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json" data-label="JSON"><?php echo ikona("eye");?><span class="lbl">Zobrazit JSON</span></button>
 			<div id="section_json" class="card mobile-section">
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<h2 class="card-title" style="flex:1;">JSON</h2>
-					<button id="copy_json" class="small" type="button">Kopírovat JSON</button>
-					<button id="download_json" class="small" type="button">Stáhnout JSON</button>
+					<button id="copy_json" class="small" type="button"><?php echo ikona("copy");?><span class="lbl">Kopírovat JSON</span></button>
+					<button id="download_json" class="small" type="button"><?php echo ikona("download");?>Stáhnout JSON</button>
 				</div>
 				<textarea id="json_textarea" readonly="readonly"><?php echo($datova_veta_json);?></textarea>
 			</div>

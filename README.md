@@ -29,6 +29,12 @@ TEST_DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_test;charset=u
 - **Rotace o 90°** (`objekty[0][rotace]=1`, v UI checkbox „Rotace 90°“ v tabulce objektů; globálně `povolit_rotaci_vsem=1`, v UI „Povolit rotaci o 90° všem objektům“ v Nastavení): výpočet smí objekt otočit kolem osy Z o 90° (záměna rozměrů x a y), když se tak vejde víc kusů. Výchozí vypnuto (kompatibilita: bez volby je výsledek stejný jako dřív). Viz [Rotace o 90°](#rotace-o-90).
 - **Import 3MF/STL a Stáhnout 3MF**: tlačítko „Import 3MF/STL“ pod tabulkou objektů předvyplní objekty ze souboru, tlačítko „Stáhnout 3MF“ u výsledku stáhne projekt pro PrusaSlicer. Viz [Import a export 3MF](#import-a-export-3mf).
 
+## Ovládání UI (ikony, Další funkce)
+
+- Každé tlačítko má vlevo od textu čárovou ikonu (inline SVG sprite `<symbol id="i-…">` na začátku `<body>`, vkládá ji PHP funkce `ikona()`; barva podle textu tlačítka, `aria-hidden`). Tvary ikon jsou z [Lucide](https://lucide.dev) (licence ISC), žádná externí knihovna ani CDN se nenačítá.
+- Jen ikonu mají akce v řádcích tabulky objektů (nahoru, dolů, duplikovat, smazat) a šipky předchozí/další instance u tiskové hlavy; popis je v `title` a `aria-label`.
+- Hlavní lišta formuláře ukazuje jen Vypočítat, Přidat řádek, Nastavení a Import 3MF/STL. Méně používané akce jsou v rozbalovací nabídce **Další funkce** (`<details>`): Příklad, Uložit do prohlížeče, Načíst z prohlížeče, Smazat uložené, Export a Import vstupu (JSON), Kopírovat odkaz. Nabídka jde ovládat klávesnicí, zavře ji Escape, klik mimo i volba položky.
+
 ## Import a export 3MF
 
 Aplikace umí načíst objekty z 3MF (PrusaSlicer i jiné slicery) nebo STL a výsledek rozmístění vrátit jako 3MF, ve kterém je **každý kus samostatný objekt v pořadí tisku**. PrusaSlicer při tisku po objektech tiskne v pořadí seznamu objektů (ověřeno v G-code), takže stačí 3MF otevřít a nařezat.
