@@ -8,7 +8,7 @@ Spuštění lokálně:
 php tests/run.php
 ```
 
-Testy nepotřebují DB (API v1 běží s `API_REQUIRE_KEY=0`). Klíč, `X-RateLimit-*` a 429 s `Retry-After` end-to-end se otestují jen proti **lokální** testovací DB ze `db/schema.sql` (test si založí uživatele a klíče a po sobě je smaže):
+Testy nepotřebují DB (API v1 běží s `API_REQUIRE_KEY=0`). Testy 3MF potřebují rozšíření zip; když ho výchozí php.ini nenačítá (WAMP), spusť `php -d extension=zip tests/run.php` (bez něj se 3MF přeskočí a ověří se jen STL a chyba `chybi_zip`). Je-li nainstalovaný PrusaSlicer (`C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe`, jinak env `PRUSASLICER_CLI`) s profily MINI, test export nařeže a zkontroluje pořadí a počet objektů v G-code; `TEST_BEZ_PRUSASLICERU=1` to vypne. Klíč, `X-RateLimit-*` a 429 s `Retry-After` end-to-end se otestují jen proti **lokální** testovací DB ze `db/schema.sql` (test si založí uživatele a klíče a po sobě je smaže):
 
 ```bash
 TEST_DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_test;charset=utf8mb4' TEST_DB_USER=root TEST_DB_PASS= php tests/run.php
@@ -27,6 +27,46 @@ TEST_DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_test;charset=u
 - **Tiskárna** (`tiskarna=prusa_mini`, v UI výběr „Tiskárna“ v Nastavení): předvolba z `config/tiskarny.json`, bez parametru výchozí Prusa MINI. Projde do sdíleného odkazu (jen když není výchozí) i exportu/importu. Neznámá předvolba = hláška místo výpočtu (JSON: `{"error": ...}`). Viz [Předvolby tiskáren](#předvolby-tiskáren).
 - **Více podložek** (`vice_podlozek=1`, `max_podlozek=N`, v UI „Více podložek“ a „Nejvýš podložek“ v Nastavení): co se nevejde na jednu podložku, pokračuje na další. Výchozí vypnuto. Viz [Více podložek](#více-podložek).
 - **Rotace o 90°** (`objekty[0][rotace]=1`, v UI checkbox „Rotace 90°“ v tabulce objektů; globálně `povolit_rotaci_vsem=1`, v UI „Povolit rotaci o 90° všem objektům“ v Nastavení): výpočet smí objekt otočit kolem osy Z o 90° (záměna rozměrů x a y), když se tak vejde víc kusů. Výchozí vypnuto (kompatibilita: bez volby je výsledek stejný jako dřív). Viz [Rotace o 90°](#rotace-o-90).
+- **Import 3MF/STL a Stáhnout 3MF**: tlačítko „Import 3MF/STL“ pod tabulkou objektů předvyplní objekty ze souboru, tlačítko „Stáhnout 3MF“ u výsledku stáhne projekt pro PrusaSlicer. Viz [Import a export 3MF](#import-a-export-3mf).
+
+## Import a export 3MF
+
+Aplikace umí načíst objekty z 3MF (PrusaSlicer i jiné slicery) nebo STL a výsledek rozmístění vrátit jako 3MF, ve kterém je **každý kus samostatný objekt v pořadí tisku**. PrusaSlicer při tisku po objektech tiskne v pořadí seznamu objektů (ověřeno v G-code), takže stačí 3MF otevřít a nařezat.
+
+**V PrusaSliceru zapni tisk po objektech:** Print Settings → Output options → Sequential printing → „Complete individual objects“ (`complete_objects = 1`), z příkazové řádky `--complete-objects`; s `--dont-arrange` (v GUI nespouštěj Uspořádat) zůstanou kusy tam, kam je dal výpočet. Do 3MF se tahle volba nezapisuje: PrusaSlicer částečný `Metadata/Slic3r_PE.config` při řezání z CLI ignoruje (ověřeno, `complete_objects` zůstalo 0) a v GUI by projekt s neúplnou konfigurací přepsal tiskárnu a profil. PrusaSlicer navíc sám kontroluje kolize (vlastním, hrubším modelem hlavy) a kus, který byť o 0,001 mm vyčnívá z podložky, tiše vynechá; export proto kus vyčnívající jen o zaokrouhlení pozic (nejvýš 0,05 mm) posune dovnitř.
+
+### Import
+
+- **3MF**: každý `<object>`, na který odkazuje položka `<build><item>`, je jeden objekt. Počet instancí = počet položek se stejným objektem. Rozměry x/y/z = ohraničení sítě po použití rotace a měřítka z `transform` první položky (posun se nepočítá), jednotky modelu (`unit`) se převedou na mm. Komponenty (`<components>`, i vnořené a s `p:path` do jiného souboru balíčku jako u Bambu/Orca) se spojí do jedné sítě. Název z `Metadata/Slic3r_PE_model.config` (`<metadata type="object" key="name">`), jinak z atributu `name`, jinak „název souboru + pořadí“. Mají-li instance různé natočení, rozměry jsou podle první a import vrátí varování.
+- **STL** (binární i ASCII, typ se pozná podle obsahu): jeden objekt, rozměry z ohraničení, název z názvu souboru, 1 instance.
+- Rozměry se zaokrouhlí na 2 desetinná místa **nahoru** (zaokrouhlení dolů by kus zmenšilo a mohlo vést ke kolizi), `sit` = index objektu v modelu (odkaz na síť pro export).
+- **Limity**: soubor nejvýš `IMPORT_MAX_MB` (env, výchozí 50 MB) a zároveň `upload_max_filesize` / `post_max_size` v PHP (WAMP má výchozí 2 MB / 8 MB, překročení je srozumitelná chyba 413). Soubor uvnitř 3MF po rozbalení nejvýš `IMPORT_MAX_ROZBALENO_MB` (výchozí 500 MB, ochrana proti zip bombě). XML se čte proudově (XMLReader, bez externích entit), síť je v paměti jako binární řetězec (12 B na vrchol a trojúhelník).
+- **3MF potřebuje PHP rozšíření zip** (`ZipArchive`, v php.ini `extension=zip`). Bez něj import 3MF i export vrátí chybu 500 `chybi_zip` s vysvětlením; import STL funguje i bez něj.
+
+### Export
+
+- Každý kus = samostatný `<object>` (síť se u každého kusu opakuje) v pořadí `poradi`; položka `<item transform>` posune kus tak, aby **střed ohraničení sítě** byl na `X`/`Y` z `pozice` (síť nemusí mít počátek ve středu) a spodek na z = 0. Otočený kus (`otoceno`) se otočí o 90° kolem Z. Rotace a měřítko z importovaného 3MF zůstanou v transformu položky.
+- Síť: importovaná (podle `sit` u objektu), jinak kvádr zadaných rozměrů. Síť větší než zadané rozměry (o víc než zaokrouhlení) je chyba vstupu u daného rozměru, protože výpočet by s ní nebyl bez kolize.
+- `Metadata/Slic3r_PE_model.config`: název objektu `01 název` (pořadí doplněné nulami podle počtu kusů; název z formuláře, jinak z modelu, jinak „objekt N“) a per-object metadata ze vstupu (např. `bottom_solid_layers`, `extruder`), takže per-object nastavení zůstanou. Části objektu (volume: modifikátory, `matrix`, `volume_type`) se přenesou, když vstup je 3MF z PrusaSliceru bez komponent. Nepřenáší se: malované podpěry, šev a MMU (atributy trojúhelníků), variabilní výška vrstvy, rozsahy výšek a celé nastavení tisku (`Slic3r_PE.config`).
+- **Více podložek**: jeden 3MF na podložku (pořadí na každé od 01). V UI a API bez volby podložky ZIP `sekvencni-tisk.zip` se soubory `sekvencni-tisk_podlozka_N.3mf`, s `podlozka=N` jen 3MF podložky N; v CLI rovnou soubory `vystup_podlozka_N.3mf` (s `--podlozka N` jen jeden). Zvolil jsem ZIP místo jednoho 3MF s více podložkami, protože formát podložek v 3MF má každý slicer jiný a PrusaSlicer ho nemá.
+
+### Kde se používá
+
+- **UI**: „Import 3MF/STL“ nahraje soubor (`index.php?akce=import_modelu`, POST multipart) a předvyplní tabulku objektů (rozměry, název, počet). Soubor se uloží do dočasné složky pod náhodný token (`sit_token` ve formuláři, 32 hex znaků z `random_bytes`), řádky nesou skrytý odkaz `objekty[i][sit]`. „Stáhnout 3MF“ (`index.php?…&format=3mf`) pak použije sítě nahraného modelu; řádek bez sítě (přidaný ručně) je kvádr, „Bez sítí“ odkaz na model zahodí. Složka `IMPORT_TMP_DIR` (výchozí `<temp>/sekvencni_tisk_modely`), soubory starší než `IMPORT_TTL_HODIN` (výchozí 24) se mažou při každém importu; prošlý token = chyba 410 `model_vyprsel`. Token v URL je zároveň oprávnění ke staženému modelu (uhodnout nejde), do sdíleného odkazu (`#s=`) ani exportu vstupu se nedává.
+- **API v1** (stejné klíče a rate limit jako ostatní endpointy):
+
+```bash
+curl -F 'soubor=@model.3mf' 'http://localhost/api/v1/import.php' -H 'X-Api-Key: <api_key>'
+curl --data-binary @model.stl 'http://localhost/api/v1/import.php?nazev=model.stl' -H 'X-Api-Key: <api_key>'
+# import + výpočet + export v jednom požadavku (nic se na serveru neukládá)
+curl -F 'soubor=@model.3mf' -F 'vstup={"options":{"vice_podlozek":true}}' 'http://localhost/api/v1/export.php' -H 'X-Api-Key: <api_key>' -o vystup.zip
+curl -X POST 'http://localhost/api/v1/export.php?podlozka=1' -H 'Content-Type: application/json' -d '{"objekty":[{"x":30,"y":20,"z":10,"instances":{"d":3}}]}' -H 'X-Api-Key: <api_key>' -o vystup.3mf
+```
+
+  `import.php` vrací `{"objekty": [{x, y, z, instances, nazev, sit}], "soubor": {nazev, typ}, "modely": [{sit, nazev, pocet_instanci, rozmery (přesně), pocet_vrcholu}], "varovani": []}`; `objekty` jdou rovnou do `arrange.php` / `export.php`. `export.php` přijme JSON jako `arrange.php` (kvádry), GET se stejnými parametry, nebo multipart `soubor` + volitelný `vstup` (JSON; bez `objekty` se vezmou z modelu, s `objekty` na sítě odkazuje `sit`). Odpověď `model/3mf` nebo `application/zip` s hlavičkami `X-Pocet-Kusu`, `X-Pocet-Podlozek`, `X-Kontrola-Kolizi` (`ok` / `kolize`).
+- **CLI**: `php bin/arrange.php --import model.3mf` vypíše výsledek importu (vstup k úpravě), `php bin/arrange.php [vstup.json] --import model.3mf --export-3mf vystup.3mf [--podlozka N]` spočítá a zapíše 3MF (na stdout jde výsledek výpočtu jako bez exportu, zapsané soubory na stderr). Bez `--import` exportuje kvádry.
+
+Chyby (formát v1, viz [Formát chyb](#formát-chyb)): 400 `chybi_soubor`, `neplatny_soubor` (`details.duvod`), `chyba_nahrani`, `nic_k_exportu`, `neplatny_vstup` (`objekty[i].sit`, rozměr menší než síť, `podlozka`); 413 `soubor_prilis_velky`; 415 `nepodporovany_soubor`; 410 `model_vyprsel` (jen UI); 500 `chybi_zip`.
 
 ## Rotace o 90°
 
@@ -136,6 +176,8 @@ Stabilní kontrakt jsou fyzické soubory v `api/v1/`, takže fungují i bez mod_
 | Endpoint | Metody | Co dělá |
 |---|---|---|
 | `api/v1/arrange.php` | GET, POST | výpočet rozmístění; POST = JSON tělo jako CLI, GET = stejné parametry jako UI a `api.php` |
+| `api/v1/import.php` | POST | import 3MF/STL (multipart `soubor` nebo tělo): objekty pro vstup, viz [Import a export 3MF](#import-a-export-3mf) |
+| `api/v1/export.php` | GET, POST | výpočet + 3MF ke stažení (JSON jako `arrange`, nebo multipart s modelem), `?podlozka=N` |
 | `api/v1/printers.php` | GET | předvolby tiskáren (`id`, `nazev`, `vychozi`, `parametry`, `plocha`, `zdroje`); `?id=<id>` jedna předvolba |
 | `api/v1/keys.php` | GET, POST, DELETE | správa API klíčů (seznam, nový klíč, `?id=` zneplatnění) |
 | `api/v1/` (`index.php`) | GET | verze a seznam endpointů |
@@ -219,7 +261,7 @@ curl 'http://localhost/index.php?format=json&objekty[0][x]=50&objekty[0][y]=50&o
 ```
 
   `poradi` = pořadí tisku na podložce (1, 2, …), `poradi_celkem` = pořadí přes všechny podložky, `podlozka` = číslo podložky (1..`pocet_podlozek`; bez volby `vice_podlozek` vždy 1 a `poradi_celkem = poradi`, viz [Více podložek](#více-podložek)), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm, `nazev` = název objektu (jen když je zadaný), `otoceno` = kus je otočený o 90° kolem Z (v sliceru ho otoč, viz [Rotace o 90°](#rotace-o-90)).
-  Při tisku po objektech dej v sliceru každý kus jako samostatný objekt v pořadí `poradi` (PrusaSlicer pořadí seznamu dodrží), u více podložek každou podložku jako samostatný projekt.
+  Při tisku po objektech dej v sliceru každý kus jako samostatný objekt v pořadí `poradi` (PrusaSlicer pořadí seznamu dodrží), u více podložek každou podložku jako samostatný projekt. Hotový projekt takhle vyrobí export 3MF, viz [Import a export 3MF](#import-a-export-3mf).
 - `pocet_podlozek` a `podlozky`: počet podložek a souhrn každé z nich (`podlozka`, `pocet_instanci`, `pocet_rad`, `otocene_objekty`, `kontrola_kolizi`). Bez volby `vice_podlozek` je podložka jedna.
 - `kontrola_kolizi`: výsledek nezávislé kontroly kolizí (viz [Kontrola kolizí](#kontrola-kolizí)):
 

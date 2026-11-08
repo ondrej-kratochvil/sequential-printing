@@ -24,6 +24,21 @@ function ok(string $message): void {
     echo "OK: {$message}\n";
 }
 
+/**
+ * Příkaz PHP pro podprocesy (CLI, endpointy). Když test běží s `-d extension=zip` a výchozí php.ini zip nenačítá,
+ * předá se volba i podprocesům, aby testy 3MF běžely všude stejně.
+ */
+function phpPrikaz(): string {
+    static $prikaz = null;
+    if ($prikaz !== null) return $prikaz;
+    $prikaz = escapeshellarg(PHP_BINARY);
+    if (extension_loaded('zip')) {
+        $maZip = trim((string)shell_exec($prikaz . ' -r "echo extension_loaded(\'zip\') ? 1 : 0;"'));
+        if ($maZip !== '1') $prikaz .= ' -d extension=zip';
+    }
+    return $prikaz;
+}
+
 function runScenarioCli(array $get): array {
     // CLI i web poběží stejně (bez shell_exec), jen CLI má plný balík testů.
     $calc = new SequentialPrintCalculator(
@@ -300,7 +315,7 @@ if (PHP_SAPI === 'cli') {
 
     // --- CLI bin/arrange.php ---
     $spustCli = function (string $stdin, array $args = []): array {
-        $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'arrange.php');
+        $cmd = phpPrikaz() . ' ' . escapeshellarg(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'arrange.php');
         foreach ($args as $a) $cmd .= ' ' . escapeshellarg($a);
         $proc = proc_open($cmd, [0 => ["pipe", "r"], 1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
         if (!is_resource($proc)) fail("CLI: nelze spustit {$cmd}");
@@ -392,7 +407,7 @@ if (PHP_SAPI === 'cli') {
     $spustIndex = function (array $get): string {
         $skript = tempnam(sys_get_temp_dir(), "idx");
         file_put_contents($skript, '<?php $_GET = ' . var_export($get, true) . '; include ' . var_export(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'index.php', true) . ';');
-        $cmd = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
+        $cmd = phpPrikaz() . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
         $proc = proc_open($cmd, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
         if (!is_resource($proc)) fail("index.php: nelze spustit {$cmd}");
         $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
@@ -753,7 +768,7 @@ if (PHP_SAPI === 'cli') {
     $spustApi = function (array $get): ?array {
         $skript = tempnam(sys_get_temp_dir(), "api");
         file_put_contents($skript, '<?php putenv("API_REQUIRE_KEY=0"); $_GET = ' . var_export($get, true) . '; include ' . var_export(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'api.php', true) . ';');
-        $cmd = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
+        $cmd = phpPrikaz() . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
         $proc = proc_open($cmd, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
         if (!is_resource($proc)) fail("api.php: nelze spustit {$cmd}");
         $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
@@ -786,7 +801,8 @@ if (PHP_SAPI === 'cli') {
     // --- API v1 (api/v1/*.php) bez DB: API_REQUIRE_KEY=0, endpoint jako samostatný proces ---
     // Vstup se podstrčí přes $_SERVER/$_GET a Api::$surovyVstup, status a hlavičky vypíše shutdown funkce na stderr.
     require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Api.php';
-    $spustEndpoint = function (string $endpoint, string $metoda = "GET", array $get = [], ?string $telo = null, array $env = ["API_REQUIRE_KEY" => "0"], array $server = []): array {
+    // $soubory = $_FILES (nahrání souboru formulářem), $post = $_POST.
+    $spustEndpoint = function (string $endpoint, string $metoda = "GET", array $get = [], ?string $telo = null, array $env = ["API_REQUIRE_KEY" => "0"], array $server = [], array $soubory = [], array $post = []): array {
         $koren = dirname(__DIR__);
         $skript = tempnam(sys_get_temp_dir(), "v1");
         $php = '<?php ';
@@ -794,12 +810,14 @@ if (PHP_SAPI === 'cli') {
         $php .= '$_SERVER["REQUEST_METHOD"] = ' . var_export($metoda, true) . '; ';
         foreach ($server as $k => $v) $php .= '$_SERVER[' . var_export($k, true) . '] = ' . var_export($v, true) . '; ';
         $php .= '$_GET = ' . var_export($get, true) . '; ';
+        $php .= '$_FILES = ' . var_export($soubory, true) . '; ';
+        $php .= '$_POST = ' . var_export($post, true) . '; ';
         $php .= 'require_once ' . var_export($koren . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Api.php', true) . '; ';
         $php .= 'Api::$surovyVstup = ' . var_export($telo, true) . '; ';
         $php .= 'register_shutdown_function(function () { fwrite(STDERR, "@@ODPOVED@@" . json_encode(Api::$odeslano === null ? null : ["status" => Api::$odeslano["status"], "hlavicky" => Api::$odeslano["hlavicky"]])); }); ';
         $php .= 'include ' . var_export($koren . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $endpoint), true) . ';';
         file_put_contents($skript, $php);
-        $cmd = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
+        $cmd = phpPrikaz() . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
         $proc = proc_open($cmd, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
         if (!is_resource($proc)) fail("{$endpoint}: nelze spustit {$cmd}");
         $out = stream_get_contents($pipes[1]);
@@ -928,6 +946,9 @@ if (PHP_SAPI === 'cli') {
     assertTrue(strpos($html, 'const PLOCHY_TISKAREN = {"prusa_mini":{"x":179,"y":180,"z":180}}') !== false, "index.php: meze všech předvoleb pro JS");
     assertTrue(strpos($html, 'nastav_max_rozmeru(') !== false, "index.php: JS přepočítá meze při změně tiskárny / rotace");
     ok("API v1: arrange (POST/GET), printers, keys, rozcestník, chyby 400/401/403/404/405 ve formátu v1, Retry-After, legacy beze změny, UI meze rozměrů.");
+
+    // --- Import a export 3MF/STL (UI, API v1, CLI, volitelně PrusaSlicer) ---
+    require __DIR__ . DIRECTORY_SEPARATOR . 'model3mf.php';
 
     // --- API v1 s DB (jen lokálně, když je nastavené TEST_DB_DSN): klíč, X-RateLimit-*, 429 s Retry-After, správa klíčů ---
     $dsn = getenv("TEST_DB_DSN");

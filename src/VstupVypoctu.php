@@ -168,6 +168,17 @@ class VstupVypoctu
             if (isset($objekt['nazev']) && !is_string($objekt['nazev'])) {
                 $pridej("{$pole}.nazev", "objekt {$cislo}: 'nazev' musí být text.");
             }
+            // Odkaz na síť importovaného modelu (export 3MF): index objektu v modelu. Na výpočet nemá vliv,
+            // jestli index v modelu existuje, ověří až export (Export3mf::pripravSite()).
+            if (isset($objekt['sit']) && !($zDotazu && $objekt['sit'] === '')) {
+                $sit = $objekt['sit'];
+                if ($zDotazu && is_string($sit) && ctype_digit($sit)) $sit = (int)$sit;
+                if (!is_int($sit) || $sit < 0) {
+                    $pridej("{$pole}.sit", "objekt {$cislo}: 'sit' musí být celé číslo >= 0 (index objektu v importovaném modelu).");
+                } else {
+                    $objekty[$i]['sit'] = $sit;
+                }
+            }
         }
 
         if (!empty($chyby)) {

@@ -3,6 +3,28 @@ define("MAXIMALNI_POCET_INSTANCI", 99);
 define("MAXIMALNI_POCET_ITERACI", 99);
 
 require_once __DIR__ . "/src/SequentialPrintCalculator.php";
+require_once __DIR__ . "/src/Api.php";
+require_once __DIR__ . "/src/UlozisteModelu.php";
+
+/* Import modelu 3MF/STL z UI (POST multipart, pole soubor): soubor se uloží pod náhodný token (UlozisteModelu),
+   odpověď JSON = objekty pro formulář + token; chyby ve formátu API v1. Bez DB a bez API klíče (UI funguje bez DB). */
+if (isset($_GET["akce"]) && $_GET["akce"] === "import_modelu") {
+	Api::obsluz(function (): void {
+		Api::povolMetody(["POST"]);
+		$soubor = Api::nahranySoubor("soubor", false);
+		if ($soubor === null) throw new ApiChyba(400, "chybi_soubor", "Vyber soubor 3MF nebo STL.");
+		$model = ImportModelu::nacti($soubor["cesta"], $soubor["nazev"], false);
+		Api::odeslat(200, ImportModelu::souhrn($model) + ["token" => UlozisteModelu::uloz($soubor["cesta"], $soubor["nazev"])]);
+	});
+}
+// Token nahraného modelu (sítě pro export 3MF); jiný tvar se zahodí.
+$sit_token = (isset($_GET["sit_token"]) && UlozisteModelu::jePlatnyToken($_GET["sit_token"])) ? $_GET["sit_token"] : "";
+// Největší soubor, který projde importem: limit aplikace (IMPORT_MAX_MB) i PHP (upload_max_filesize, post_max_size).
+$import_max_bajtu = ImportModelu::maxVelikost();
+foreach (["upload_max_filesize", "post_max_size"] as $ini_limit) {
+	$bajty = Api::bajtyZIni((string)ini_get($ini_limit));
+	if ($bajty > 0) $import_max_bajtu = min($import_max_bajtu, $bajty);
+}
 
 /* Funkce */
 
@@ -281,6 +303,26 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 	exit;
 }
 
+/* Export 3MF (tlačítko „Stáhnout 3MF“): stejný výpočet jako stránka, každý kus samostatný objekt v pořadí tisku.
+   Sítě z nahraného modelu podle sit_token a objekty[i][sit], jinak kvádry. Víc podložek = ZIP (nebo podlozka=N).
+   Chyby ve formátu API v1 (JS je ukáže v hlášce). */
+if (isset($_GET["format"]) && $_GET["format"] === "3mf") {
+	Api::obsluz(function () use ($chyba_tiskarny, $sit_token, &$vysledek, &$objekty_input): void {
+		if ($chyba_tiskarny !== "") throw new ApiChyba(404, "neznama_tiskarna", $chyba_tiskarny);
+		if (!isset($vysledek) || !is_array($vysledek)) throw new ApiChyba(400, "nic_k_exportu", "Chybí objekty, není co exportovat.");
+		$model = null;
+		if (isset($_GET["sit_token"]) && $_GET["sit_token"] !== "") {
+			$ulozeny = UlozisteModelu::najdi($sit_token);
+			if ($ulozeny === null) {
+				throw new ApiChyba(410, "model_vyprsel", "Nahraný model už na serveru není (drží se " . round(UlozisteModelu::ttl() / 3600) . " h). Nahraj soubor znovu.");
+			}
+			$model = ImportModelu::nacti($ulozeny["cesta"], $ulozeny["nazev"], true);
+		}
+		$export = Export3mf::zVysledku(SequentialPrintCalculator::vystupApi($vysledek), $objekty_input, $model, Api::cisloPodlozky($_GET["podlozka"] ?? null));
+		Api::odeslatSoubor($export["obsah"], $export["typ"], $export["nazev"], ["Cache-Control" => "no-store"]);
+	});
+}
+
 // Cache busting / no-cache pro HTML (mobilní prohlížeče často agresivně cachují).
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Cache-Control: post-check=0, pre-check=0", false);
@@ -332,7 +374,10 @@ header("Expires: 0");
 			function pridej_radek_do_tabulky (par_id_objektu) {
 				id_objektu++;
 				if (par_id_objektu) id_objektu = parseInt(par_id_objektu);
-				const { x = "", y = "", z = "", nazev = "", rotace = false } = objekty[id_objektu] || {};
+				const { x = "", y = "", z = "", nazev = "", rotace = false, sit = "" } = objekty[id_objektu] || {};
+				// Odkaz na síť nahraného modelu (export 3MF); řádek bez něj se exportuje jako kvádr.
+				const sitInput = (sit !== "" && sit !== null && /^\d+$/.test(String(sit)))
+					? `<input class="sit" type="hidden" name="objekty[${id_objektu}][sit]" value="${escapeAttr(sit)}" />` : "";
 				const rotacePovolena = (rotace === true || rotace === 1 || rotace === "1");
 				instances = (objekty[id_objektu] ? objekty[id_objektu]["instances"]["d"] : "max");
 				const vysledny_pocet_instanci = (objekty[id_objektu] && objekty[id_objektu]["instances"]["r"]) || "";
@@ -342,7 +387,7 @@ header("Expires: 0");
 				$("table#objekty").append(
 					`<tr id="objekt_${id_objektu}" data-row="1" data-idx="${id_objektu}">
 						<td class="cell_id">${id_objektu + 1}</td>
-						<td><input class="nazev" type="text" name="objekty[${id_objektu}][nazev]" value="${escapeAttr(nazev)}" maxlength="<?php echo SequentialPrintCalculator::MAXIMALNI_DELKA_NAZVU;?>" placeholder="volitelný" /></td>
+						<td>${sitInput}<input class="nazev" type="text" name="objekty[${id_objektu}][nazev]" value="${escapeAttr(nazev)}" maxlength="<?php echo SequentialPrintCalculator::MAXIMALNI_DELKA_NAZVU;?>" placeholder="volitelný" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][x]" value="${escapeAttr(x)}" step="0.01" min="0.1" max="<?php echo $plocha_tiskarny["x"];?>" required="required" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][y]" value="${escapeAttr(y)}" step="0.01" min="0.1" max="<?php echo $plocha_tiskarny["y"];?>" required="required" /></td>
 						<td><input class="dim" type="number" name="objekty[${id_objektu}][z]" value="${escapeAttr(z)}" step="0.01" min="0.1" max="<?php echo $plocha_tiskarny["z"];?>" required="required" /></td>
@@ -869,6 +914,91 @@ header("Expires: 0");
 					a.click();
 					a.remove();
 					URL.revokeObjectURL(url);
+				});
+
+				// --- Import 3MF/STL: soubor se nahraje na server (index.php?akce=import_modelu), odpověď předvyplní tabulku
+				// objektů (rozměry, název, počet) a token nahraného modelu jde do skrytého pole sit_token (sítě pro export 3MF).
+				const IMPORT_MAX_BAJTU = <?php echo (int)$import_max_bajtu;?>;
+				function zpravaChyby(data, status) {
+					return (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + status);
+				}
+				function zobrazModel(text) {
+					$("#model_info").text(text || "");
+					$("#model_zapomenout").toggle(!!text);
+				}
+				$('#import_modelu').on('click', function () { $('#model_soubor').trigger('click'); });
+				$('#model_soubor').on('change', async function () {
+					const input = this;
+					const soubor = input.files && input.files[0];
+					if (!soubor) return;
+					if (soubor.size > IMPORT_MAX_BAJTU) {
+						alert('Soubor má ' + (soubor.size / 1048576).toFixed(1) + ' MB, server přijme nejvýš ' + (IMPORT_MAX_BAJTU / 1048576).toFixed(1) + ' MB.');
+						input.value = '';
+						return;
+					}
+					const fd = new FormData();
+					fd.append('soubor', soubor);
+					$("#local_status").text('Načítám ' + soubor.name + '…');
+					try {
+						const res = await fetch('./index.php?akce=import_modelu', { method: 'POST', body: fd });
+						let data = null;
+						try { data = await res.json(); } catch (e) { data = null; }
+						if (!res.ok || !data || data.error) {
+							$("#local_status").text('');
+							alert('Import se nepovedl: ' + zpravaChyby(data, res.status));
+							return;
+						}
+						const st = get_form_state();
+						st.objekty = data.objekty;
+						set_form_state(st);
+						$('#sit_token').val(data.token || '');
+						zobrazModel('Model: ' + soubor.name + ' (' + data.objekty.length + ' ' + (data.objekty.length === 1 ? 'objekt' : (data.objekty.length < 5 ? 'objekty' : 'objektů')) + '), export 3MF použije jeho sítě.');
+						setStatus('Načteno z ' + soubor.name);
+						if (Array.isArray(data.varovani) && data.varovani.length) alert('Upozornění:\n' + data.varovani.join('\n'));
+					} catch (e) {
+						$("#local_status").text('');
+						alert('Import se nepovedl: ' + e);
+					} finally {
+						input.value = '';
+					}
+				});
+				$('#model_zapomenout').on('click', function () {
+					// Bez modelu: export 3MF udělá kvádry zadaných rozměrů.
+					$('#sit_token').val('');
+					$("table#objekty input.sit").remove();
+					zobrazModel('');
+				});
+
+				// --- Export 3MF: stejné parametry jako zobrazený výsledek + format=3mf; chyba = hláška, jinak stažení souboru.
+				$('#download_3mf').on('click', async function () {
+					const $btn = $(this);
+					const params = new URLSearchParams(window.location.search);
+					params.set('format', '3mf');
+					$btn.prop('disabled', true);
+					try {
+						const res = await fetch('./index.php?' + params.toString());
+						if (!res.ok) {
+							let data = null;
+							try { data = await res.json(); } catch (e) { data = null; }
+							alert('Export 3MF se nepovedl: ' + zpravaChyby(data, res.status));
+							return;
+						}
+						const blob = await res.blob();
+						const cd = res.headers.get('Content-Disposition') || '';
+						const m = cd.match(/filename="([^"]+)"/);
+						const url = URL.createObjectURL(blob);
+						const a = document.createElement('a');
+						a.href = url;
+						a.download = m ? m[1] : 'sekvencni-tisk.3mf';
+						document.body.appendChild(a);
+						a.click();
+						a.remove();
+						setTimeout(() => URL.revokeObjectURL(url), 1000);
+					} catch (e) {
+						alert('Export 3MF se nepovedl: ' + e);
+					} finally {
+						$btn.prop('disabled', false);
+					}
 				});
 
 				// U velmi malých instancí schovej popisky, aby nepřetékaly mimo obdélník (mobil).
@@ -1523,8 +1653,15 @@ header("Expires: 0");
 				<button class="ghost" id="export_input" type="button" title="Export vstupu (objekty + nastavení) do JSON">Export</button>
 				<button class="ghost" id="import_input" type="button" title="Import vstupu (objekty + nastavení) z JSON">Import</button>
 				<button class="ghost" id="copy_link" type="button" title="Zkopíruje odkaz pro sdílení konfigurace">Kopírovat odkaz</button>
+				<button class="ghost" id="import_modelu" type="button" title="Načte objekty (rozměry, název, počet) z 3MF z PrusaSliceru nebo ze STL">Import 3MF/STL</button>
+				<input id="model_soubor" type="file" accept=".3mf,.stl" hidden="hidden" />
+				<input id="sit_token" type="hidden" name="sit_token" value="<?php echo htmlspecialchars($sit_token, ENT_QUOTES, "UTF-8");?>" />
 			  <button class="primary" type="submit">Vypočítat</button>
 				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
+			</div>
+			<div style="color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+				<span id="model_info"><?php if ($sit_token !== "") {?>Nahraný model: export 3MF použije jeho sítě.<?php }?></span>
+				<button class="small ghost" id="model_zapomenout" type="button" title="Export 3MF udělá kvádry zadaných rozměrů"<?php if ($sit_token === "") {?> style="display:none;"<?php }?>>Bez sítí</button>
 			</div>
 		</form>
 		</div>
@@ -1586,6 +1723,12 @@ if ($text_nad_tabulkou) {
 ?>
 		<div class="card" style="margin-top: 14px;" data-has-result="1">
 			<?php echo $text_nad_tabulkou;?>
+<?php if ($pocet_instanci > 0) {?>
+			<div class="toolbar" style="margin: 8px 0 0;">
+				<button id="download_3mf" class="small" type="button" title="Každý kus jako samostatný objekt v pořadí tisku; v PrusaSliceru zapni tisk po objektech (Complete individual objects)">Stáhnout 3MF<?php if ($pocet_podlozek > 1) {?> (ZIP, <?php echo (int)$pocet_podlozek.' '.sklonovani($pocet_podlozek, "podložka", "podložky", "podložek");?>)<?php }?></button>
+				<span style="color: var(--muted); font-size: 13px; align-self: center;"><?php echo $sit_token !== "" ? "se sítěmi nahraného modelu" : "kusy jako kvádry zadaných rozměrů";?></span>
+			</div>
+<?php }?>
 <?php
 	if (!empty($otocene_objekty)) {
 		// Otočené objekty: v sliceru je nutné kusy otočit o 90° kolem Z (název escapovat).

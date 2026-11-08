@@ -72,6 +72,11 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
 ### C2. Rate-limit UX
 - ~~**`Retry-After` + standardizace 429** *(ANO – 8.a)*: při 429 vracet doporučený čas do dalšího okna, jednotný error payload~~ hotovo: hlavička `Retry-After` (sekundy do dalšího minutového okna) + `details.retry_after`, u úspěšných odpovědí `X-RateLimit-Limit` / `X-RateLimit-Remaining`, testy čisté funkce i end-to-end proti lokální DB (`TEST_DB_DSN`).
 
+### C3. Import a export 3MF (PR F)
+- ~~**Import 3MF/STL**: objekty, rozměry po transformaci, počty instancí a názvy z 3MF (PrusaSlicer i komponenty), STL binární i ASCII~~ hotovo: UI tlačítko „Import 3MF/STL“ (předvyplní tabulku), `api/v1/import.php`, CLI `--import`, limity (`IMPORT_MAX_MB`, limity PHP, zip bomba), chyby ve formátu v1.
+- ~~**Export 3MF**: každý kus samostatný objekt v pořadí tisku, střed na X/Y, otočení o 90°, původní sítě nebo kvádry, názvy `01 název`, per-object nastavení ze vstupu~~ hotovo: UI „Stáhnout 3MF“ (sítě přes dočasné úložiště s tokenem), `api/v1/export.php` (import + výpočet + export v jednom požadavku), CLI `--export-3mf`, více podložek = ZIP / `podlozka=N` / soubor na podložku v CLI, ověřeno nařezáním v PrusaSliceru 2.9 (pořadí v G-code).
+- Zbývá: přenést per-triangle data z PrusaSliceru (malované podpěry, šev, MMU) a variabilní výšku vrstvy; `complete_objects` zatím zapíná uživatel v profilu (PrusaSlicer částečný `Slic3r_PE.config` v 3MF při řezání z CLI ignoruje).
+
 ## Milník D – DB (až nakonec)
 
 ### D1. UI pro správu API klíčů
