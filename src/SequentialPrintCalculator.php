@@ -716,7 +716,8 @@ class SequentialPrintCalculator
             return;
         }
 
-        // Směr tisku je globální – odvoď ho podle profilu hlavy pro nejvyšší objekt v zadání.
+        // Směr tisku je globální – odvoď ho podle obálky hlavy do výšky nejvyššího objektu v zadání
+        // (hlava nad dřív vytištěnými kusy je nejvýš tak velká, viz getHeadForHeight).
         $maxH = 0.0;
         foreach ($this->objektySerazene as $o) {
             if ($o['z'] > $maxH) $maxH = $o['z'];
@@ -1077,7 +1078,7 @@ class SequentialPrintCalculator
                 $i1 = $i2;
                 $i1++;
 
-                // mezera v ose X závisí na směru tisku + profilu hlavy pro výšku objektu
+                // mezera v ose X závisí na směru tisku + obálce hlavy do výšky objektu
                 $XMezeraMeziInstancemi = ($this->printer['smer_X'] === 'zleva_doprava' ? $head['Xl'] : $head['Xr']);
 
                 $zacalNovouRadu = false;
@@ -1442,29 +1443,13 @@ class SequentialPrintCalculator
     }
 
     /**
-     * Vrátí profil hlavy pro danou výšku objektu.
-     * Pravidlo: vezmi nejbližší nižší nebo stejný schod (z <= H).
+     * Rozměry hlavy pro objekt výšky H: obálka hlavy do výšky H (CollisionChecker::obalkaHlavy), stejné pravidlo
+     * jako kontrola kolizí. Pořadí tisku jde podle výšky vzestupně, takže každý dřív vytištěný kus má výšku <= H
+     * a obálka do H je aspoň tak velká jako obálka, se kterou kontrola počítá pro kterýkoli dřívější kus.
      */
     private function getHeadForHeight(float $h): array
     {
-        $steps = isset($this->printer['head_steps']) && is_array($this->printer['head_steps']) ? $this->printer['head_steps'] : [];
-        if (empty($steps)) {
-            return [
-                'z' => $h,
-                'Xl' => $this->printer['Xl'],
-                'Xr' => $this->printer['Xr'],
-                'Yl' => $this->printer['Yl'],
-                'Yr' => $this->printer['Yr'],
-            ];
-        }
-
-        $best = null;
-        foreach ($steps as $s) {
-            if ($s['z'] <= $h) $best = $s;
-            else break;
-        }
-        if ($best === null) $best = $steps[0];
-        return $best;
+        return CollisionChecker::obalkaHlavy($this->printer, $h);
     }
 
     /**

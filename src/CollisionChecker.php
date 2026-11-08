@@ -6,12 +6,13 @@
  * rozměry kusů a parametry tiskárny. Pro každý kus v pořadí tisku ověří:
  *
  * 1) Hlava: obdélník hlavy kolem trysky je Xl vlevo, Xr vpravo, Yl dopředu, Yr dozadu
- *    (stejný význam jako v kalkulátoru a ve vizualizaci; při head_steps se bere schod podle výšky).
+ *    (stejný význam jako v kalkulátoru a ve vizualizaci; při head_steps se bere obálka hlavy, viz obalkaHlavy()).
  *    Tryska během tisku kusu projede celý jeho půdorys, takže hlava zasáhne obdélník
  *    [levá hrana − Xl, pravá hrana + Xr] × [přední hrana − Yl, zadní hrana + Yr].
  *    Do tohoto obdélníku nesmí zasahovat ŽÁDNÝ dříve vytištěný kus (ne jen předchozí řada).
- *    Schod hlavy se bere podle výšky dřívějšího kusu: při tisku první vrstvy aktuálního kusu
- *    do dřívějšího kusu může narazit jen ta část hlavy, která je do jeho výšky.
+ *    Rozměry hlavy se berou jako obálka do výšky H dřívějšího kusu: při tisku první vrstvy aktuálního
+ *    kusu je nad dřívějším kusem celá část hlavy od trysky do výšky H (ve výškách 0..H nad tryskou),
+ *    takže rozhoduje po složkách největší Xl, Xr, Yl, Yr ze všech schodů se z <= H, ne jen schod pro H.
  *
  * 2) Vodicí tyče: tyče jsou na pohyblivé části ve vzdálenosti vodici_tyce_Y od trysky
  *    (za tryskou při tisku zepředu dozadu, před tryskou při tisku zezadu dopředu) ve výšce
@@ -139,7 +140,7 @@ class CollisionChecker
      */
     public function presahHlavy(array $kus, array $drivejsi): float
     {
-        $head = $this->hlavaProVysku((float)$drivejsi['z']);
+        $head = self::obalkaHlavy($this->printer, (float)$drivejsi['z']);
         $h = self::obdelnikHlavy($kus, $head);
         $d = self::obdelnikKusu($drivejsi);
         $pruX = min($h[1], $d[1]) - max($h[0], $d[0]);
@@ -192,7 +193,7 @@ class CollisionChecker
         $s = 0.0;
         if ($this->presahHlavy($kus, $drivejsi) > self::TOLERANCE) {
             // Hlava musí celá minout dřívější kus: přední okraj hlavy za jeho zadní hranou (resp. naopak).
-            $head = $this->hlavaProVysku((float)$drivejsi['z']);
+            $head = self::obalkaHlavy($this->printer, (float)$drivejsi['z']);
             $s = max($s, $zepredu ? ($d[3] - ($r[2] - (float)$head['Yl'])) : (($r[3] + (float)$head['Yr']) - $d[2]));
         }
         if ($this->presahTyci($kus, $drivejsi) > self::TOLERANCE) {
@@ -214,27 +215,65 @@ class CollisionChecker
     }
 
     /**
-     * Profil hlavy pro danou výšku - stejné pravidlo jako kalkulátor:
-     * nejbližší nižší nebo stejný schod (z <= H), jinak první schod; bez schodů Xl/Xr/Yl/Yr tiskárny.
+     * Obálka hlavy do výšky H (jediné místo pro rozměry hlavy podle výšky: kontrola kolizí, kalkulátor
+     * i vizualizace). Po složkách maximum Xl, Xr, Yl, Yr ze všech schodů se z <= H včetně nejnižšího schodu
+     * (pod nejnižším schodem platí nejnižší schod, stejně jako dřív). Bez schodů Xl/Xr/Yl/Yr tiskárny.
+     * U profilu, který se směrem nahoru nezužuje, je obálka totéž co schod pro výšku H.
+     *
+     * @param array $printer Tiskárna s Xl, Xr, Yl, Yr a volitelně head_steps ([['z','Xl','Xr','Yl','Yr'], ...]).
+     * @return array ['Xl','Xr','Yl','Yr'] (se schody i 'z' schodu, od kterého obálka platí)
      */
-    public function hlavaProVysku(float $h): array
+    public static function obalkaHlavy(array $printer, float $h): array
     {
-        $steps = isset($this->printer['head_steps']) && is_array($this->printer['head_steps']) ? $this->printer['head_steps'] : [];
-        if (empty($steps)) {
+        $steps = isset($printer['head_steps']) && is_array($printer['head_steps']) ? $printer['head_steps'] : [];
+        $obalka = empty($steps) ? [] : self::obalkaSchodu($steps);
+        if (empty($obalka)) {
             return [
-                'Xl' => (float)$this->printer['Xl'],
-                'Xr' => (float)$this->printer['Xr'],
-                'Yl' => (float)$this->printer['Yl'],
-                'Yr' => (float)$this->printer['Yr'],
+                'Xl' => (float)$printer['Xl'],
+                'Xr' => (float)$printer['Xr'],
+                'Yl' => (float)$printer['Yl'],
+                'Yr' => (float)$printer['Yr'],
             ];
         }
-        $best = null;
-        foreach ($steps as $s) {
-            if ((float)$s['z'] <= $h) $best = $s;
+        $best = $obalka[0];
+        foreach ($obalka as $s) {
+            if ($s['z'] <= $h) $best = $s;
             else break;
         }
-        if ($best === null) $best = $steps[0];
         return $best;
+    }
+
+    /**
+     * Schody převedené na obálku: každý schod (seřazené podle z) má po složkách maximum ze sebe
+     * a všech schodů pod ním. Výběr schodu pro výšku H (nejbližší z <= H) z obálky = obalkaHlavy().
+     * Vizualizace dostává tyto schody, aby kreslila stejnou hlavu, s jakou počítá kontrola.
+     *
+     * @param array $steps [['z','Xl','Xr','Yl','Yr'], ...]
+     * @return array [['z','Xl','Xr','Yl','Yr'], ...] seřazené podle z
+     */
+    public static function obalkaSchodu(array $steps): array
+    {
+        $serazene = [];
+        foreach (array_values($steps) as $i => $s) {
+            if (!is_array($s)) continue;
+            $serazene[] = [$i, $s];
+        }
+        usort($serazene, function ($a, $b) {
+            $porovnani = ((float)$a[1]['z'] <=> (float)$b[1]['z']);
+            return $porovnani !== 0 ? $porovnani : ($a[0] <=> $b[0]);
+        });
+        $obalka = [];
+        $max = null;
+        foreach ($serazene as [$_i, $s]) {
+            $schod = ['z' => (float)$s['z']];
+            foreach (['Xl', 'Xr', 'Yl', 'Yr'] as $klic) {
+                $v = (float)$s[$klic];
+                $schod[$klic] = ($max === null) ? $v : max($max[$klic], $v);
+            }
+            $max = $schod;
+            $obalka[] = $schod;
+        }
+        return $obalka;
     }
 
     private function smerY(): string

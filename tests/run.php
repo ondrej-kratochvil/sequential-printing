@@ -313,6 +313,77 @@ if (PHP_SAPI === 'cli') {
     assertSame("podlozka", $k["konflikty"][0]["typ"] ?? null, "Checker: kus mimo podložku");
     ok("CollisionChecker najde kolizi hlavy, vodicích tyčí i přesah z podložky.");
 
+    // Obálka hlavy (head_steps): kontrola bere po složkách maximum ze všech schodů do výšky dřívějšího kusu.
+    $hlavaKlice = function (array $hlava): array {
+        return [$hlava["Xl"], $hlava["Xr"], $hlava["Yl"], $hlava["Yr"]];
+    };
+    $smiseny = ["Xl" => 10, "Xr" => 30, "Yl" => 10, "Yr" => 12, "head_steps" => [
+        ["z" => 15, "Xl" => 20, "Xr" => 5, "Yl" => 8, "Yr" => 25],
+        ["z" => 0, "Xl" => 10, "Xr" => 30, "Yl" => 10, "Yr" => 12],
+    ]];
+    assertSame([10.0, 30.0, 10.0, 12.0], $hlavaKlice(CollisionChecker::obalkaHlavy($smiseny, 10)), "Obálka: pod 2. schodem jen základ");
+    assertSame([20.0, 30.0, 10.0, 25.0], $hlavaKlice(CollisionChecker::obalkaHlavy($smiseny, 20)), "Obálka: po složkách maximum ze schodů do výšky (i neseřazené schody)");
+    $bezZakladu = ["Xl" => 1, "Xr" => 1, "Yl" => 1, "Yr" => 1, "head_steps" => [["z" => 10, "Xl" => 7, "Xr" => 8, "Yl" => 9, "Yr" => 6]]];
+    assertSame([7.0, 8.0, 9.0, 6.0], $hlavaKlice(CollisionChecker::obalkaHlavy($bezZakladu, 5)), "Obálka: pod nejnižším schodem platí nejnižší schod (jako dřív)");
+    assertSame([36.5, 12.0, 15.5, 15.5], $hlavaKlice(CollisionChecker::obalkaHlavy($mini, 100)), "Obálka: bez schodů rozměry tiskárny");
+
+    // Hlava dole širší než nahoře: u trysky (z 0..10) 30 mm na každou stranu, od 10 mm jen 5 mm.
+    // Dřívější kus je vysoký 50 mm a nový kus je 10 mm vlevo od něj. Stará logika brala jen schod pro 50 mm (5 mm)
+    // a kolizi přehlédla; spodní část hlavy (30 mm) ale při tisku první vrstvy nového kusu zasáhne do dřívějšího kusu.
+    $siroka = array_merge($mini, ["vodici_tyce_Z" => 0, "vodici_tyce_Y" => 0, "head_steps" => [
+        ["z" => 0, "Xl" => 30, "Xr" => 30, "Yl" => 30, "Yr" => 30],
+        ["z" => 10, "Xl" => 5, "Xr" => 5, "Yl" => 5, "Yr" => 5],
+    ]]);
+    $rozlozeni = [$kus(1, 100, 0, 40, 40, 50), $kus(2, 50, 0, 40, 40, 50)];
+    $jenSchodProVysku = array_merge($siroka, ["head_steps" => [["z" => 0, "Xl" => 5, "Xr" => 5, "Yl" => 5, "Yr" => 5]]]);
+    assertSame(true, (new CollisionChecker($jenSchodProVysku))->check($rozlozeni)["ok"], "Široká hlava dole: se schodem jen pro výšku 50 mm (stará logika) bez kolize");
+    $k = (new CollisionChecker($siroka))->check($rozlozeni);
+    assertSame(false, $k["ok"], "Široká hlava dole: obálka kolizi najde");
+    assertSame(["hlava", 2, 1], [$k["konflikty"][0]["typ"], $k["konflikty"][0]["poradi"], $k["konflikty"][0]["s_poradi"]], "Široká hlava dole: hlava při tisku #2 do #1");
+    assertNear(20.0, $k["konflikty"][0]["presah_mm"], 0.01, "Široká hlava dole: přesah 90 + 30 − 100");
+    // Nízký dřívější kus (5 mm) je jen v dosahu spodní části hlavy, obálka do 5 mm = základ: stejná kolize.
+    $k = (new CollisionChecker($siroka))->check([$kus(1, 100, 0, 40, 40, 5), $kus(2, 50, 0, 40, 40, 50)]);
+    assertNear(20.0, $k["konflikty"][0]["presah_mm"] ?? 0.0, 0.01, "Široká hlava dole: i nízký dřívější kus");
+    // Kalkulátor se zužujícím se profilem = stejné rozmístění jako s ručně zadanou obálkou, a bez kolize.
+    $obalkaRucne = array_merge($siroka, ["head_steps" => [
+        ["z" => 0, "Xl" => 30, "Xr" => 30, "Yl" => 30, "Yr" => 30],
+        ["z" => 10, "Xl" => 30, "Xr" => 30, "Yl" => 30, "Yr" => 30],
+    ]]);
+    foreach ([[], ["rozprostrit_instance_po_cele_podlozce" => false, "rozprostrit_instance_v_ose_x" => false, "rozprostrit_instance_v_ose_y" => false]] as $opt) {
+        $objektyObalka = [["x" => 20, "y" => 20, "z" => 5, "instances" => ["d" => 4]], ["x" => 25, "y" => 20, "z" => 50, "instances" => ["d" => 99]]];
+        $resSiroka = (new SequentialPrintCalculator($siroka, $opt))->calculate($objektyObalka);
+        $resRucne = (new SequentialPrintCalculator($obalkaRucne, $opt))->calculate($objektyObalka);
+        assertSame($resRucne["pozice"], $resSiroka["pozice"], "Široká hlava dole: rozmístění jako s ručně zadanou obálkou");
+        assertSame(true, $resSiroka["kontrola_kolizi"]["ok"], "Široká hlava dole: výpočet bez kolize");
+        $nezavisle = (new CollisionChecker($resRucne["printer"]))->check(CollisionChecker::kusyZVysledku($resSiroka["pozice"], $resSiroka["objekty"]));
+        assertSame(true, $nezavisle["ok"], "Široká hlava dole: bez kolize i podle ručně zadané obálky");
+    }
+    // Dřív kolizní výstup: 3× 20×20×50 bez rozprostření. Stará logika (schod pro 50 mm = 5 mm) dala kusy 5 mm od sebe
+    // a hlásila „bez kolize“; s obálkou (30 mm u trysky) výpočet kusy rozestoupí.
+    $res = (new SequentialPrintCalculator($siroka, ["rozprostrit_instance_po_cele_podlozce" => false, "rozprostrit_instance_v_ose_x" => false, "rozprostrit_instance_v_ose_y" => false]))
+        ->calculate([["x" => 20, "y" => 20, "z" => 50, "instances" => ["d" => 3]]]);
+    $nezavisle = (new CollisionChecker(array_merge($res["printer"], ["head_steps" => $obalkaRucne["head_steps"]])))->check(CollisionChecker::kusyZVysledku($res["pozice"], $res["objekty"]));
+    assertSame([3, true, true], [$res["pocet_instanci"], $res["kontrola_kolizi"]["ok"], $nezavisle["ok"]], "Široká hlava dole: 3 kusy bez kolize podle obálky");
+
+    // Regrese: profil, který se nahoru nezužuje, má obálku = schody, kontrola i výpočet beze změny.
+    $monotonni = array_merge($mini, ["head_steps" => [
+        ["z" => 0, "Xl" => 36.5, "Xr" => 12, "Yl" => 15.5, "Yr" => 15.5],
+        ["z" => 20, "Xl" => 40, "Xr" => 20, "Yl" => 18, "Yr" => 25],
+        ["z" => 60, "Xl" => 60, "Xr" => 50, "Yl" => 30, "Yr" => 40],
+    ]]);
+    $schodyMono = (new SequentialPrintCalculator($monotonni, []))->calculate([["x" => 10, "y" => 10, "z" => 10]])["printer"]["head_steps"];
+    assertSame($schodyMono, CollisionChecker::obalkaSchodu($schodyMono), "Monotónní profil: obálka = schody");
+    foreach ([0, 19.99, 20, 59, 60, 150] as $vyska) {
+        $schod = $schodyMono[0];
+        foreach ($schodyMono as $s) if ($s["z"] <= $vyska) $schod = $s;
+        assertSame($hlavaKlice($schod), $hlavaKlice(CollisionChecker::obalkaHlavy($monotonni, (float)$vyska)), "Monotónní profil: obálka pro {$vyska} mm = schod");
+    }
+    $k = (new CollisionChecker($monotonni))->check([$kus(1, 129, 0, 50, 30, 25), $kus(2, 74, 0, 50, 30, 25)]);
+    assertNear(15.0, $k["konflikty"][0]["presah_mm"] ?? 0.0, 0.01, "Monotónní profil: přesah podle schodu od 20 mm (Xr 20 − mezera 5)");
+    $resMono = (new SequentialPrintCalculator($monotonni, []))->calculate([["x" => 30, "y" => 20, "z" => 15, "instances" => ["d" => 6]], ["x" => 20, "y" => 20, "z" => 70, "instances" => ["d" => 6]]]);
+    assertSame(true, $resMono["kontrola_kolizi"]["ok"], "Monotónní profil: výpočet bez kolize");
+    ok("Obálka hlavy: zužující se profil (hlava dole širší) kontrola zachytí, monotónní profil beze změny.");
+
     // --- CLI bin/arrange.php ---
     $spustCli = function (string $stdin, array $args = []): array {
         $cmd = phpPrikaz() . ' ' . escapeshellarg(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'arrange.php');
