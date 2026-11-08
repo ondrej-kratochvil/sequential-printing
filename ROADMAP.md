@@ -51,6 +51,9 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
 ### B2. Více průchodů (optimalizace)
 - ~~**Rotace o 90° jako druhý průchod** *(ANO – 6.a)*: povolit per objekt (zap/vyp), vybrat nejlepší výsledek (max počet instancí, sekundárně preference rozprostření)~~ hotovo: volba `rotace` u objektu + `povolit_rotaci_vsem`, varianty nic / vše / greedy po objektech, `pozice[].otoceno` a `otocene_objekty`, UI (checkbox, šrafovaný kus ve vizualizaci, sloupec v pozicích, sdílený odkaz, export/import), GET, CLI, API, testy.
 
+### B2a. Více podložek
+- ~~**`vice_podlozek` + `max_podlozek`**: co se nevejde na jednu podložku, pokračuje na další (každá podložka samostatně bez kolize)~~ hotovo: `pozice[].podlozka`, `poradi` v rámci podložky + `poradi_celkem`, `pocet_podlozek`, `podlozky`, limit jen nad strop (`max_podlozek`), „max“ jen na 1. podložce, UI záložky podložek, tabulka pozic, GET, CLI, API, testy.
+
 ### B2b. Volba rozprostření v ose Y
 - ~~**`rozprostreni_y_rezim`**: `po_instancich` (výchozí) nebo `po_radach` (celá řada o stejný krok, místo rozdělené mezi řady)~~ hotovo: UI přepínač, GET, CLI/API `options`, testy bez kolize v obou režimech.
 
@@ -83,6 +86,10 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
 - **Login/registrace + uložení projektů** *(ANO – 10.a, 10.b)*:
   - uložit vstupy (projekty),
   - verze projektu / historie.
+
+### D0. Předvolby tiskáren bez DB
+- ~~**`config/tiskarny.json`**: předvolby se zdrojem každé hodnoty, výchozí MINI jako jediný zdroj výchozí tiskárny~~ hotovo: výběr v UI, GET `tiskarna`, sdílený odkaz, export/import, CLI/API `tiskarna` nebo `printer: "<id>"`, neznámá předvolba = chyba.
+- Zbývá: doplnit další tiskárny (MK4, XL, …), až budou ověřené rozměry hlavy a vodicích tyčí (měření nebo dokumentace výrobce), postup v README.
 
 ### D3. Tiskárny v DB
 - **CRUD tiskáren + schvalování** *(ANO – 11.a, 12.a)*:

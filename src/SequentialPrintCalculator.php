@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'CollisionChecker.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'PredvolbyTiskaren.php';
 
 class SequentialPrintCalculator
 {
@@ -22,23 +23,19 @@ class SequentialPrintCalculator
     public const ROZPROSTRENI_Y_PO_RADACH = 'po_radach';
     public const ROZPROSTRENI_Y_REZIMY = [self::ROZPROSTRENI_Y_PO_INSTANCICH, self::ROZPROSTRENI_Y_PO_RADACH];
 
+    /** Strop počtu podložek při volbě `vice_podlozek` (a výchozí `max_podlozek`). */
+    public const MAXIMALNI_POCET_PODLOZEK = 20;
+
     /**
      * Výchozí tiskárna (Prusa MINI) - jediné místo, odkud ji berou UI (index.php), API (api.php) i CLI (bin/arrange.php).
+     * Hodnoty jsou v předvolbě config/tiskarny.json (výchozí předvolba, viz PredvolbyTiskaren), tady se jen čtou.
      * Xl/Xr/Yl/Yr = vzdálenost trysky od levé/pravé/přední/zadní hrany hlavy (mm).
      * posun_zprava = korekce pro Prusa MINI, kdy objekt umístěný zcela vpravo má deformovanou stěnu.
      */
-    public const VYCHOZI_TISKARNA = [
-        'x' => 180,
-        'y' => 180,
-        'z' => 180,
-        'posun_zprava' => 1,
-        'Xr' => 12,
-        'Xl' => 36.5,
-        'Yr' => 15.5,
-        'Yl' => 15.5,
-        'vodici_tyce_Z' => 21,
-        'vodici_tyce_Y' => 17.4,
-    ];
+    public static function vychoziTiskarna(): array
+    {
+        return PredvolbyTiskaren::parametry(PredvolbyTiskaren::vychoziId());
+    }
 
     /** Výchozí nastavení výpočtu (stejné jako UI bez parametrů). */
     public const VYCHOZI_NASTAVENI = [
@@ -48,6 +45,9 @@ class SequentialPrintCalculator
         'rozprostreni_y_rezim' => self::ROZPROSTRENI_Y_PO_INSTANCICH,
         // Rotace o 90° kolem Z povolená všem objektům (jinak jen objektům s `rotace`). Výchozí vypnuto kvůli kompatibilitě.
         'povolit_rotaci_vsem' => false,
+        // Více podložek: co se nevejde na jednu podložku, pokračuje na další (nejvýš max_podlozek). Výchozí vypnuto.
+        'vice_podlozek' => false,
+        'max_podlozek' => self::MAXIMALNI_POCET_PODLOZEK,
     ];
 
     /** @var array */
@@ -165,10 +165,226 @@ class SequentialPrintCalculator
      * varianty s otočenými objekty (x a y zaměněné) a vezme se nejlepší (viz jeLepsiVarianta()).
      * Výsledek má navíc `otocene_objekty` a u pozic `otoceno`.
      *
+     * Více podložek (nastavení `vice_podlozek`): co se nevejde na první podložku, pokračuje
+     * na další podložce (viz vypocitejVicePodlozek()).
+     *
      * @param array $objekty Input objekty ve tvaru jako z GET (včetně instances[d]).
-     * @return array Výsledek výpočtu (pozice, metadata, aktualizované objekty, kontrola_kolizi).
+     * @return array Výsledek výpočtu (pozice, metadata, aktualizované objekty, kontrola_kolizi, podlozky).
      */
     public function calculate(array $objekty): array
+    {
+        $prvni = $this->vypocitejJednuPodlozku($objekty);
+        if ($this->options['vice_podlozek']) return $this->vypocitejVicePodlozek($objekty, $prvni);
+        $prvni['podlozky'] = [self::souhrnPodlozky(1, $prvni)];
+        return $prvni;
+    }
+
+    /**
+     * Více podložek: dokud zbývají požadované instance (objekty s přesným počtem), počítá další
+     * podložku jen se zbylými kusy, stejnými pravidly a se samostatnou kontrolou kolizí. Končí,
+     * když se vešlo vše, když se na novou podložku nevešel žádný kus, nebo na stropu `max_podlozek`.
+     *
+     * Objekt s počtem "max" je jen na první podložce (jinak by zaplnil všechny podložky až do stropu).
+     * Rotace se volí pro každou podložku zvlášť (pozice[].otoceno, podlozky[].otocene_objekty).
+     *
+     * Výstup: pos[podložka][řada][kus], pozice s `podlozka`, `poradi` (v rámci podložky)
+     * a `poradi_celkem`, instance objektu číslované průběžně přes podložky, pocet_instanci celkem,
+     * pocet_podlozek, kontrola_kolizi souhrnně (konflikty s `podlozka`, kroky s předponou „Podložka N:“),
+     * podlozky = souhrn každé podložky. Ostatní údaje (řady, zbývající místo, objekty_serazene) jsou z 1. podložky.
+     */
+    private function vypocitejVicePodlozek(array $objekty, array $prvni): array
+    {
+        $maxPodlozek = $this->options['max_podlozek'];
+        $pozadovano = [];
+        foreach ($prvni['objekty'] as $id => $o) {
+            if (isset($this->pozadovanoMax[$id])) continue;
+            $pozadovano[$id] = (int)$o['instances']['d'];
+        }
+
+        $podlozky = [$prvni];
+        $umisteno = self::poctyZPozic($prvni['pozice']);
+        $stropDosazen = false;
+        while (true) {
+            $zbyva = [];
+            foreach ($pozadovano as $id => $d) {
+                $n = $d - ($umisteno[$id] ?? 0);
+                if ($n > 0) $zbyva[$id] = $n;
+            }
+            if (empty($zbyva)) break;
+            if (count($podlozky) >= $maxPodlozek) {
+                $stropDosazen = true;
+                break;
+            }
+            $vstup = [];
+            foreach ($zbyva as $id => $n) {
+                $vstup[$id] = $objekty[$id];
+                $vstup[$id]['instances'] = ['d' => $n];
+            }
+            $dalsi = $this->vypocitejJednuPodlozku($vstup);
+            if (empty($dalsi['pozice'])) break;
+            // Instance objektu číslovat průběžně přes podložky (na 2. podložce pokračuje za 1. podložkou).
+            $dalsi = self::posunCislaInstanci($dalsi, $umisteno);
+            foreach (self::poctyZPozic($dalsi['pozice']) as $id => $n) {
+                $umisteno[$id] = ($umisteno[$id] ?? 0) + $n;
+            }
+            $podlozky[] = $dalsi;
+        }
+
+        if (count($podlozky) === 1) {
+            // Na další podložku se nic nedostalo (vše se vešlo, nebo strop 1): výsledek stejný jako bez volby,
+            // jen limit na stropu max_podlozek řekne, že se to nevešlo kvůli stropu.
+            if ($stropDosazen) $prvni['limit'] = $this->limitVicePodlozek($prvni['limit'], $podlozky, $pozadovano, $umisteno, true);
+            $prvni['podlozky'] = [self::souhrnPodlozky(1, $prvni)];
+            return $prvni;
+        }
+        return $this->slozPodlozky($podlozky, $pozadovano, $umisteno, $stropDosazen);
+    }
+
+    /** Počet umístěných kusů podle objektu (klíč ve vstupu) z pole pozice. */
+    private static function poctyZPozic(array $pozice): array
+    {
+        $pocty = [];
+        foreach ($pozice as $p) {
+            $pocty[$p['objekt']] = ($pocty[$p['objekt']] ?? 0) + 1;
+        }
+        return $pocty;
+    }
+
+    /** Přičte k číslům instancí (pos, pozice, datova_veta_pole) počet kusů objektu z dřívějších podložek. */
+    private static function posunCislaInstanci(array $vysledek, array $umisteno): array
+    {
+        foreach ($vysledek['pozice'] as $k => $p) {
+            $posun = $umisteno[$p['objekt']] ?? 0;
+            $vysledek['pozice'][$k]['instance'] += $posun;
+            $vysledek['datova_veta_pole'][$k][0] += $posun;
+        }
+        if (!empty($vysledek['pos'][1])) {
+            foreach ($vysledek['pos'][1] as $y => $rada) {
+                foreach ($rada as $x => $inst) {
+                    $vysledek['pos'][1][$y][$x]['i'] += $umisteno[$inst['o'] - 1] ?? 0;
+                }
+            }
+        }
+        return $vysledek;
+    }
+
+    /** Souhrn jedné podložky pro výstup `podlozky`. */
+    private static function souhrnPodlozky(int $cislo, array $vysledek): array
+    {
+        return [
+            'podlozka' => $cislo,
+            'pocet_instanci' => $vysledek['pocet_instanci'],
+            'pocet_rad' => $vysledek['pocet_rad'],
+            'otocene_objekty' => $vysledek['otocene_objekty'] ?? [],
+            'kontrola_kolizi' => $vysledek['kontrola_kolizi'] ?? null,
+        ];
+    }
+
+    /**
+     * Složí výsledky jednotlivých podložek do jednoho výsledku (popis viz vypocitejVicePodlozek()).
+     *
+     * @param array $podlozky     Výsledky vypocitejJednuPodlozku() v pořadí podložek
+     * @param array $pozadovano   Požadovaný počet objektů s přesným počtem (klíč => d)
+     * @param array $umisteno     Umístěno celkem (klíč => počet)
+     * @param bool  $stropDosazen Výpočet skončil na stropu max_podlozek
+     */
+    private function slozPodlozky(array $podlozky, array $pozadovano, array $umisteno, bool $stropDosazen): array
+    {
+        $prvni = $podlozky[0];
+        $vysledek = $prvni;
+        $vysledek['pos'] = $vysledek['pozice'] = $vysledek['datova_veta_pole'] = $vysledek['podlozky'] = [];
+        // Rozměry objektů na každé podložce (rotace se volí po podložkách) - pro vizualizaci a kontrolu po podložkách.
+        $vysledek['objekty_podlozek'] = [];
+        $kontrola = ['ok' => true, 'pocet_kusu' => 0, 'konflikty' => [], 'upraveno' => false, 'postup' => [], 'puvodni_konflikty' => []];
+        $otocene = [];
+        $poradiCelkem = 0;
+
+        foreach ($podlozky as $index => $podlozka) {
+            $cislo = $index + 1;
+            $vysledek['pos'][$cislo] = $podlozka['pos'][1] ?? [];
+            $vysledek['objekty_podlozek'][$cislo] = $podlozka['objekty'];
+            foreach ($podlozka['pozice'] as $k => $p) {
+                $p['poradi_celkem'] = ++$poradiCelkem;
+                $p['podlozka'] = $cislo;
+                $vysledek['pozice'][] = $p;
+                $vysledek['datova_veta_pole'][] = $podlozka['datova_veta_pole'][$k];
+            }
+            $vysledek['podlozky'][] = self::souhrnPodlozky($cislo, $podlozka);
+            $otocene = array_merge($otocene, $podlozka['otocene_objekty'] ?? []);
+
+            $kk = $podlozka['kontrola_kolizi'] ?? ['ok' => false, 'pocet_kusu' => 0, 'konflikty' => []];
+            $kontrola['ok'] = $kontrola['ok'] && !empty($kk['ok']);
+            $kontrola['pocet_kusu'] += (int)($kk['pocet_kusu'] ?? 0);
+            foreach ($kk['konflikty'] ?? [] as $konflikt) $kontrola['konflikty'][] = ['podlozka' => $cislo] + $konflikt;
+            if (!empty($kk['upraveno'])) {
+                $kontrola['upraveno'] = true;
+                foreach ($kk['postup'] ?? [] as $krok) $kontrola['postup'][] = 'Podložka ' . $cislo . ': ' . $krok;
+                foreach ($kk['puvodni_konflikty'] ?? [] as $konflikt) $kontrola['puvodni_konflikty'][] = ['podlozka' => $cislo] + $konflikt;
+            }
+        }
+        if (!$kontrola['upraveno']) unset($kontrola['puvodni_konflikty']);
+
+        $otocene = array_values(array_unique($otocene));
+        sort($otocene);
+        $vysledek['otocene_objekty'] = $otocene;
+        $vysledek['kontrola_kolizi'] = $kontrola;
+        $vysledek['pocet_instanci'] = count($vysledek['pozice']);
+        $vysledek['pocet_podlozek'] = count($podlozky);
+        foreach ($vysledek['objekty'] as $id => $_) {
+            $vysledek['objekty'][$id]['instances']['r'] = $umisteno[$id] ?? 0;
+        }
+        $vysledek['limit'] = $this->limitVicePodlozek($prvni['limit'], $podlozky, $pozadovano, $umisteno, $stropDosazen);
+        return $vysledek;
+    }
+
+    /**
+     * Limit u více podložek: z 1. podložky zůstanou objekty vyřazené kvůli rozměru a objekty "max"
+     * (ty jsou jen na 1. podložce). U objektů s přesným počtem jen to, co se nevešlo ani na všechny
+     * podložky: na stropu max_podlozek `duvod` = `max_podlozek`, jinak důvod z poslední podložky.
+     */
+    private function limitVicePodlozek(array $limitPrvni, array $podlozky, array $pozadovano, array $umisteno, bool $stropDosazen): array
+    {
+        $limit = [];
+        foreach ($limitPrvni as $polozka) {
+            if (!isset($pozadovano[$polozka['objekt']])) $limit[$polozka['objekt']] = $polozka;
+        }
+        $posledni = $podlozky[count($podlozky) - 1];
+        $limitPosledni = [];
+        foreach ($posledni['limit'] as $polozka) $limitPosledni[$polozka['objekt']] = $polozka;
+        $pocetPodlozek = count($podlozky);
+        $naPodlozkach = 'na ' . $pocetPodlozek . ' ' . ($pocetPodlozek === 1 ? 'podložce' : 'podložkách');
+
+        foreach ($pozadovano as $id => $d) {
+            $u = $umisteno[$id] ?? 0;
+            if ($u >= $d) continue;
+            $nazev = $podlozky[0]['objekty'][$id]['nazev'] ?? '';
+            $oznaceni = 'Objekt ' . $this->cisloObjektu($id) . ($nazev !== '' ? ' (' . $nazev . ')' : '');
+            if ($stropDosazen) {
+                $duvod = 'max_podlozek';
+                $popisDuvodu = 'další podložka by překročila strop max_podlozek (' . $pocetPodlozek . ')';
+            } elseif (isset($limitPosledni[$id])) {
+                // Důvod z poslední podložky (bez jejího „umístěno X z Y“).
+                $duvod = $limitPosledni[$id]['duvod'];
+                $popisDuvodu = rtrim(preg_replace('/^.*?: (umístěno \d+ z \d+|nevešel se ani jeden kus) - /u', '', $limitPosledni[$id]['popis']), '.');
+            } else {
+                $duvod = 'misto_y';
+                $popisDuvodu = 'na další podložku se už nevešel žádný kus';
+            }
+            $polozka = ['objekt' => $id];
+            if ($nazev !== '') $polozka['nazev'] = $nazev;
+            $limit[$id] = $polozka + [
+                'pozadovano' => $d,
+                'umisteno' => $u,
+                'duvod' => $duvod,
+                'popis' => $oznaceni . ': umístěno ' . $u . ' z ' . $d . ' ' . $naPodlozkach . ' - ' . $popisDuvodu . '.',
+            ];
+        }
+        ksort($limit);
+        return array_values($limit);
+    }
+
+    /** Jedna podložka: výpočet rozložení + kontrola kolizí + varianty rotace (popis viz calculate()). */
+    private function vypocitejJednuPodlozku(array $objekty): array
     {
         // `otoceno` nastavuje jen výpočet (varianta s otočeným objektem), ze vstupu se nepřebírá.
         foreach ($objekty as $id => $objekt) {
@@ -636,8 +852,8 @@ class SequentialPrintCalculator
 
     private function normalizePrinter(array $printer): array
     {
-        // Chybějící hodnoty doplní výchozí tiskárna (VYCHOZI_TISKARNA = Prusa MINI).
-        $printer = array_merge(self::VYCHOZI_TISKARNA, array_filter($printer, function ($v) { return $v !== null; }));
+        // Chybějící hodnoty doplní výchozí tiskárna (vychoziTiskarna() = předvolba Prusa MINI).
+        $printer = array_merge(self::vychoziTiskarna(), array_filter($printer, function ($v) { return $v !== null; }));
         $x = (float)$printer['x'];
         $y = (float)$printer['y'];
         $z = (float)$printer['z'];
@@ -704,6 +920,12 @@ class SequentialPrintCalculator
                 // Neznámá hodnota = výchozí režim (kompatibilita).
                 $rezim = isset($options[$klic]) ? $options[$klic] : $vychozi;
                 $out[$klic] = in_array($rezim, self::ROZPROSTRENI_Y_REZIMY, true) ? $rezim : $vychozi;
+                continue;
+            }
+            if ($klic === 'max_podlozek') {
+                // Celé číslo 1..MAXIMALNI_POCET_PODLOZEK; neplatná hodnota = výchozí strop.
+                $max = isset($options[$klic]) && is_numeric($options[$klic]) ? (int)$options[$klic] : $vychozi;
+                $out[$klic] = max(1, min(self::MAXIMALNI_POCET_PODLOZEK, $max));
                 continue;
             }
             $out[$klic] = isset($options[$klic]) ? (bool)$options[$klic] : $vychozi;
@@ -1050,8 +1272,12 @@ class SequentialPrintCalculator
         $X = round($p['X'], 2);
         $Y = round($p['Y'], 2);
         $this->datovaVetaPole[] = [$p['i'], $X, $Y];
+        $poradi = count($this->poziceDetail) + 1;
         $this->poziceDetail[] = [
-            'poradi' => count($this->poziceDetail) + 1,
+            'poradi' => $poradi,
+            // poradi_celkem a podlozka: u více podložek je přečísluje calculate() (poradi je v rámci podložky).
+            'poradi_celkem' => $poradi,
+            'podlozka' => 1,
             'objekt' => $p['o'] - 1,
             'instance' => $p['i'],
             'rada' => $yIdx,
@@ -1258,6 +1484,7 @@ class SequentialPrintCalculator
             'kontrola_kolizi' => isset($vysledek['kontrola_kolizi']) ? $vysledek['kontrola_kolizi'] : null,
             'limit' => isset($vysledek['limit']) ? $vysledek['limit'] : [],
             'otocene_objekty' => isset($vysledek['otocene_objekty']) ? $vysledek['otocene_objekty'] : [],
+            'podlozky' => isset($vysledek['podlozky']) ? $vysledek['podlozky'] : [],
         ];
     }
 

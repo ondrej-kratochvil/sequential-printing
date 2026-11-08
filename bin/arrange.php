@@ -7,10 +7,13 @@
 //
 // Vstup (JSON):
 //   {"objekty": [{"x": 50, "y": 50, "z": 100, "instances": {"d": 3 | "max"}, "nazev": "volitelné", "rotace": true}],
-//    "options": {...}, "printer": {...}}      // options a printer jsou volitelné (výchozí = Prusa MINI jako v UI)
+//    "options": {...}, "printer": {...}, "tiskarna": "prusa_mini"}
+//   options, printer a tiskarna jsou volitelné (výchozí = Prusa MINI jako v UI); printer může být i id předvolby
+//   (config/tiskarny.json), vlastní hodnoty v objektu printer přepíšou předvolbu. options.vice_podlozek = více podložek.
 //
 // Výstup: JSON se stejnými klíči jako api.php (positions, pozice, pocet_instanci, pocet_podlozek,
-// objekty, printer, kontrola_kolizi, limit, otocene_objekty). Exit code: 0 = OK, 1 = chybný vstup, 2 = výsledek obsahuje kolizi.
+// objekty, printer, kontrola_kolizi, limit, otocene_objekty, podlozky). Exit code: 0 = OK, 1 = chybný vstup
+// (i neznámá předvolba tiskárny), 2 = výsledek obsahuje kolizi.
 
 require_once __DIR__ . '/../src/SequentialPrintCalculator.php';
 
@@ -48,16 +51,34 @@ if ($raw === false || trim($raw) === '') chybnyVstup('prázdný vstup.');
 $vstup = json_decode($raw, true);
 if (!is_array($vstup)) chybnyVstup('vstup není platný JSON objekt (' . json_last_error_msg() . ').');
 
-// Tiskárna a nastavení: chybějící hodnoty doplní kalkulátor (VYCHOZI_TISKARNA / VYCHOZI_NASTAVENI).
+// Tiskárna a nastavení: chybějící hodnoty doplní předvolba (výchozí Prusa MINI) a VYCHOZI_NASTAVENI.
+// Předvolba tiskárny (config/tiskarny.json): "tiskarna": "<id>", nebo "printer": "<id>" místo objektu.
+// Vlastní hodnoty v objektu "printer" přepíšou hodnoty předvolby.
 $printer = $vstup['printer'] ?? [];
 $options = $vstup['options'] ?? [];
-if (!is_array($printer)) chybnyVstup("'printer' musí být objekt.");
+$idTiskarny = $vstup['tiskarna'] ?? null;
+if (is_string($printer)) {
+    if ($idTiskarny !== null && $idTiskarny !== $printer) chybnyVstup("'tiskarna' a 'printer' určují různé předvolby.");
+    $idTiskarny = $printer;
+    $printer = [];
+}
+if ($idTiskarny !== null && !is_string($idTiskarny)) chybnyVstup("'tiskarna' musí být id předvolby (text).");
+if ($idTiskarny !== null && !PredvolbyTiskaren::existuje($idTiskarny)) {
+    chybnyVstup("neznámá tiskárna '{$idTiskarny}'. Dostupné předvolby: " . implode(', ', array_keys(PredvolbyTiskaren::seznam())) . '.');
+}
+if (!is_array($printer)) chybnyVstup("'printer' musí být objekt nebo id předvolby.");
 if (!is_array($options)) chybnyVstup("'options' musí být objekt.");
 if (isset($options['rozprostreni_y_rezim']) && !in_array($options['rozprostreni_y_rezim'], SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY, true)) {
     chybnyVstup("'options.rozprostreni_y_rezim' musí být " . implode(' nebo ', SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY) . '.');
 }
 if (isset($options['povolit_rotaci_vsem']) && !is_bool($options['povolit_rotaci_vsem']) && !in_array($options['povolit_rotaci_vsem'], [0, 1], true)) {
     chybnyVstup("'options.povolit_rotaci_vsem' musí být true/false.");
+}
+if (isset($options['vice_podlozek']) && !is_bool($options['vice_podlozek']) && !in_array($options['vice_podlozek'], [0, 1], true)) {
+    chybnyVstup("'options.vice_podlozek' musí být true/false.");
+}
+if (isset($options['max_podlozek']) && !(is_int($options['max_podlozek']) && $options['max_podlozek'] >= 1 && $options['max_podlozek'] <= SequentialPrintCalculator::MAXIMALNI_POCET_PODLOZEK)) {
+    chybnyVstup("'options.max_podlozek' musí být celé číslo 1 až " . SequentialPrintCalculator::MAXIMALNI_POCET_PODLOZEK . '.');
 }
 $rotaceVsem = !empty($options['povolit_rotaci_vsem']);
 foreach ($printer as $klic => $hodnota) {
@@ -67,7 +88,7 @@ foreach ($printer as $klic => $hodnota) {
     }
     if (!is_numeric($hodnota)) chybnyVstup("'printer.{$klic}' musí být číslo.");
 }
-$tiskarna = array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, $printer);
+$tiskarna = PredvolbyTiskaren::sestav($idTiskarny, $printer);
 
 $objekty = $vstup['objekty'] ?? null;
 if (!is_array($objekty) || empty($objekty)) chybnyVstup("chybí neprázdné pole 'objekty'.");
@@ -112,7 +133,7 @@ foreach ($objekty as $i => $objekt) {
     }
 }
 
-$calculator = new SequentialPrintCalculator($printer, $options);
+$calculator = new SequentialPrintCalculator($tiskarna, $options);
 $vystup = SequentialPrintCalculator::vystupApi($calculator->calculate($objekty));
 
 
