@@ -344,7 +344,7 @@ if (PHP_SAPI === 'cli') {
     assertSame("krabička", $sNazvem[0]["nazev"] ?? null, "CLI: nazev objektu se propíše do pozice");
     assertSame(179.0, (float)$cli["json"]["printer"]["x"], "CLI: výchozí tiskárna (180 − posun_zprava)");
 
-    // Stejný výsledek jako přímé volání kalkulátoru (= api.php).
+    // Stejný výsledek jako přímé volání kalkulátoru (= API v1).
     $primo = SequentialPrintCalculator::vystupApi((new SequentialPrintCalculator([], []))->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]));
     $cli2 = $spustCli(json_encode(["objekty" => [["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]]));
     assertSame(json_decode(json_encode($primo), true), $cli2["json"], "CLI: stejný výstup jako vystupApi()");
@@ -764,25 +764,6 @@ if (PHP_SAPI === 'cli') {
         assertTrue(isset($cli["json"]["error"]), "CLI neznámá tiskárna: JSON s 'error'");
     }
 
-    // API (bez DB: API_REQUIRE_KEY=0): neznámá předvolba = chyba, známá = stejný výsledek.
-    $spustApi = function (array $get): ?array {
-        $skript = tempnam(sys_get_temp_dir(), "api");
-        file_put_contents($skript, '<?php putenv("API_REQUIRE_KEY=0"); $_GET = ' . var_export($get, true) . '; include ' . var_export(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'api.php', true) . ';');
-        $cmd = phpPrikaz() . ' -d display_errors=1 -d error_reporting=-1 ' . escapeshellarg($skript);
-        $proc = proc_open($cmd, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
-        if (!is_resource($proc)) fail("api.php: nelze spustit {$cmd}");
-        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        proc_close($proc);
-        unlink($skript);
-        return json_decode($out, true);
-    };
-    $api = $spustApi(["objekty" => [["x" => 10, "y" => 10, "z" => 10]], "tiskarna" => "neexistuje"]);
-    assertTrue(isset($api["error"]) && strpos($api["error"], "Neznámá tiskárna") !== false, "API: neznámá tiskárna = chyba");
-    $api = $spustApi(["objekty" => [["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 20]]], "tiskarna" => "prusa_mini", "options" => ["vice_podlozek" => "1"]]);
-    assertSame([4, 20], [$api["pocet_podlozek"] ?? null, $api["pocet_instanci"] ?? null], "API: tiskarna + options.vice_podlozek");
-
     // UI: select tiskárny, GET tiskarna, neznámá předvolba = hláška (HTML) / error (JSON).
     $html = $spustIndex(["tiskarna" => "prusa_mini", "objekty" => [["x" => "50", "y" => "50", "z" => "10", "instances" => ["d" => "3"]]]]);
     assertTrue(stripos($html, "Warning") === false && stripos($html, "Notice") === false, "index.php tiskarna: bez warningů");
@@ -796,7 +777,7 @@ if (PHP_SAPI === 'cli') {
     $jsonBez = json_decode($spustIndex(["format" => "json", "objekty" => [["x" => "50", "y" => "50", "z" => "100", "instances" => ["d" => "3"]]]]), true);
     assertSame("prusa_mini", $json["tiskarna"] ?? null, "index.php JSON: id tiskárny");
     assertSame($jsonBez["pozice"], $json["pozice"], "index.php: předvolba MINI = výchozí");
-    ok("Předvolby tiskáren: MINI = dosavadní výchozí, zdroje hodnot, CLI/API/UI tiskarna, neznámá předvolba = chyba.");
+    ok("Předvolby tiskáren: MINI = dosavadní výchozí, zdroje hodnot, CLI/UI tiskarna (API v1 níže), neznámá předvolba = chyba.");
 
     // --- API v1 (api/v1/*.php) bez DB: API_REQUIRE_KEY=0, endpoint jako samostatný proces ---
     // Vstup se podstrčí přes $_SERVER/$_GET a Api::$surovyVstup, status a hlavičky vypíše shutdown funkce na stderr.
@@ -851,7 +832,7 @@ if (PHP_SAPI === 'cli') {
     assertSame(200, $r["status"], "v1 POST: status 200 ({$r["out"]}{$r["err"]})");
     assertSame("", $r["err"], "v1 POST: bez warningů");
     $primo = SequentialPrintCalculator::vystupApi((new SequentialPrintCalculator([], []))->calculate($vstupV1["objekty"]));
-    assertSame(json_decode(json_encode($primo), true), $r["json"], "v1 POST: stejný výstup jako vystupApi() (= api.php, CLI)");
+    assertSame(json_decode(json_encode($primo), true), $r["json"], "v1 POST: stejný výstup jako vystupApi() (= CLI)");
     assertSame("application/json; charset=UTF-8", $r["hlavicky"]["Content-Type"] ?? null, "v1: Content-Type");
     assertTrue(!isset($r["hlavicky"]["X-RateLimit-Limit"]), "v1 bez klíče: bez X-RateLimit-*");
     $cliV1 = $spustCli(json_encode($vstupV1));
@@ -860,7 +841,8 @@ if (PHP_SAPI === 'cli') {
     $getV1 = ["objekty" => [["x" => "50", "y" => "50", "z" => "10", "instances" => ["d" => "20"]]], "tiskarna" => "prusa_mini", "options" => ["vice_podlozek" => "1"]];
     $r = $spustEndpoint("api/v1/arrange.php", "GET", $getV1);
     assertSame([200, 4, 20], [$r["status"], $r["json"]["pocet_podlozek"] ?? null, $r["json"]["pocet_instanci"] ?? null], "v1 GET: tiskarna + options.vice_podlozek");
-    assertSame($spustApi($getV1), $r["json"], "v1 GET = legacy api.php GET");
+    $r2 = $spustEndpoint("api/v1/arrange.php", "POST", [], json_encode(["objekty" => [["x" => 50, "y" => 50, "z" => 10, "instances" => ["d" => 20]]], "tiskarna" => "prusa_mini", "options" => ["vice_podlozek" => true]]));
+    assertSame($r2["json"], $r["json"], "v1 GET = v1 POST se stejným vstupem");
     $getV1["options"]["vice_podlozek"] = "false";
     $r = $spustEndpoint("api/v1/arrange.php", "GET", $getV1);
     assertSame([200, 1], [$r["status"], $r["json"]["pocet_podlozek"] ?? null], "v1 GET: options.vice_podlozek=false = vypnuto (text z dotazu)");
@@ -901,17 +883,29 @@ if (PHP_SAPI === 'cli') {
     assertTrue(isset($r["json"]["endpointy"]["arrange"], $r["json"]["endpointy"]["printers"], $r["json"]["endpointy"]["keys"]), "v1 rozcestník: seznam endpointů");
     $chybaV1($spustEndpoint("api/v1/index.php", "GET", ["endpoint" => "neexistuje"]), 404, "neznamy_endpoint", "v1 neznámý endpoint");
 
-    // Klíč vyžadovaný (výchozí): bez klíče 401 ještě před DB; legacy api.php drží tvar {"error": "<text>"}.
-    $chybaV1($spustEndpoint("api/v1/arrange.php", "POST", [], json_encode($vstupV1), ["API_REQUIRE_KEY" => "1"]), 401, "chybi_klic", "v1 bez klíče");
-    $r = $spustEndpoint("api.php", "GET", $getV1, null, ["API_REQUIRE_KEY" => "1"]);
-    assertSame(401, $r["status"], "legacy api.php bez klíče: 401");
-    assertTrue(is_string($r["json"]["error"] ?? null) && strpos($r["json"]["error"], "Chybí API klíč") !== false, "legacy api.php: chyba zůstává text");
-    $r = $spustEndpoint("api.php", "POST", [], '{"objekty":[]}');
-    assertSame([400, "Chybí pole 'objekty'."], [$r["status"], $r["json"]["error"] ?? null], "legacy api.php: chybí objekty, dosavadní text");
-    $r = $spustEndpoint("api.php", "POST", [], '{"objekty":[{"x":500,"y":10,"z":10}]}');
-    assertSame([200, "rozmer"], [$r["status"], $r["json"]["limit"][0]["duvod"] ?? null], "legacy api.php: rozměr nad podložku = limit rozmer (beze změny)");
-    $r = $spustEndpoint("api_keys.php");
-    assertSame([403, "Správa API klíčů vyžaduje autentizaci."], [$r["status"], $r["json"]["error"] ?? null], "legacy api_keys.php: 403 dosavadní text");
+    // Klíč vyžadovaný (výchozí): bez klíče 401 ještě před DB; printers je veřejný (bez klíče i DB).
+    $sKlicemEnv = ["API_REQUIRE_KEY" => "1"];
+    $chybaV1($spustEndpoint("api/v1/arrange.php", "POST", [], json_encode($vstupV1), $sKlicemEnv), 401, "chybi_klic", "v1 bez klíče");
+    $chybaV1($spustEndpoint("api/v1/export.php", "POST", [], json_encode($vstupV1), $sKlicemEnv), 401, "chybi_klic", "v1 export bez klíče");
+    $chybaV1($spustEndpoint("api/v1/import.php", "POST", [], "solid x", $sKlicemEnv), 401, "chybi_klic", "v1 import bez klíče");
+    $chybaV1($spustEndpoint("api/v1/keys.php", "GET", [], null, $sKlicemEnv), 401, "chybi_klic", "v1 keys bez klíče");
+    $r = $spustEndpoint("api/v1/printers.php", "GET", [], null, $sKlicemEnv);
+    assertSame([200, "prusa_mini", ""], [$r["status"], $r["json"]["vychozi"] ?? null, $r["err"]], "v1 printers bez klíče: 200 i s API_REQUIRE_KEY=1");
+    assertTrue(!isset($r["hlavicky"]["X-RateLimit-Limit"]), "v1 printers: bez rate limitu");
+    $r = $spustEndpoint("api/v1/printers.php", "GET", ["id" => "prusa_mini"], null, $sKlicemEnv);
+    assertSame([200, "prusa_mini"], [$r["status"], $r["json"]["tiskarna"]["id"] ?? null], "v1 printers?id bez klíče: 200");
+    $r = $spustEndpoint("api/v1/index.php");
+    assertSame(["vyzaduje", "bez_klice", "vzdy"], [$r["json"]["endpointy"]["arrange"]["klic"] ?? null, $r["json"]["endpointy"]["printers"]["klic"] ?? null, $r["json"]["endpointy"]["keys"]["klic"] ?? null], "v1 rozcestník: u endpointů je vidět, jestli chtějí klíč");
+
+    // Odstraněné legacy adresy: 410 Gone ve formátu v1 s odkazem na náhradu (bez klíče i DB, jakákoli metoda).
+    foreach (["api.php" => "api/v1/arrange.php", "api_keys.php" => "api/v1/keys.php"] as $stary => $novy) {
+        foreach (["GET", "POST", "DELETE"] as $metoda) {
+            $r = $spustEndpoint($stary, $metoda, ["id" => "1"], '{"objekty":[{"x":10,"y":10,"z":10}]}', $sKlicemEnv);
+            $chybaV1($r, 410, "odstraneno", "{$stary} {$metoda}");
+            assertSame($novy, $r["json"]["error"]["details"]["nahrada"] ?? null, "{$stary} {$metoda}: details.nahrada");
+            assertSame("<{$novy}>; rel=\"successor-version\"", $r["hlavicky"]["Link"] ?? null, "{$stary} {$metoda}: hlavička Link");
+        }
+    }
 
     // CLI: stejná validace jako v1, všechny chyby po polích.
     $cli = $spustCli('{"objekty":[{"x":-5,"y":10,"z":10},{"x":10,"y":10,"z":10,"instances":{"d":0}}]}');
@@ -945,7 +939,7 @@ if (PHP_SAPI === 'cli') {
     assertTrue(strpos($html, 'name="objekty[${id_objektu}][x]" value="${escapeAttr(x)}" step="0.01" min="0.1" max="179"') !== false, "index.php: max x = plocha MINI po posun_zprava");
     assertTrue(strpos($html, 'const PLOCHY_TISKAREN = {"prusa_mini":{"x":179,"y":180,"z":180}}') !== false, "index.php: meze všech předvoleb pro JS");
     assertTrue(strpos($html, 'nastav_max_rozmeru(') !== false, "index.php: JS přepočítá meze při změně tiskárny / rotace");
-    ok("API v1: arrange (POST/GET), printers, keys, rozcestník, chyby 400/401/403/404/405 ve formátu v1, Retry-After, legacy beze změny, UI meze rozměrů.");
+    ok("API v1: arrange (POST/GET), printers, keys, rozcestník, chyby 400/401/403/404/405 ve formátu v1, printers bez klíče, staré adresy 410, Retry-After, UI meze rozměrů.");
 
     // --- Import a export 3MF/STL (UI, API v1, CLI, volitelně PrusaSlicer) ---
     require __DIR__ . DIRECTORY_SEPARATOR . 'model3mf.php';
@@ -980,9 +974,11 @@ if (PHP_SAPI === 'cli') {
             $retry = (int)($r3["hlavicky"]["Retry-After"] ?? 0);
             assertTrue($retry >= 1 && $retry <= 60, "DB v1 429: Retry-After 1..60 (bylo {$retry})");
             assertSame([$retry, 2], [$r3["json"]["error"]["details"]["retry_after"] ?? null, $r3["json"]["error"]["details"]["limit"] ?? null], "DB v1 429: details.retry_after = Retry-After");
-            $r = $spustEndpoint("api.php", "POST", [], json_encode($vstupV1), $dbEnv, $sKlicem($omezeny));
-            assertSame([429, "Rate limit exceeded."], [$r["status"], $r["json"]["error"] ?? null], "DB legacy api.php 429: dosavadní tělo");
-            assertTrue(isset($r["hlavicky"]["Retry-After"]), "DB legacy api.php 429: Retry-After");
+            assertTrue(strpos($r3["json"]["error"]["message"] ?? "", "Překročen limit 2") === 0, "DB v1 429: česká zpráva");
+            $r = $spustEndpoint("api/v1/printers.php", "GET", [], null, $dbEnv, $sKlicem($omezeny));
+            assertSame(200, $r["status"], "DB v1 printers: veřejný, klíč nad limitem nevadí");
+            $r = $spustEndpoint("api/v1/printers.php", "GET", [], null, $dbEnv);
+            assertSame(200, $r["status"], "DB v1 printers bez klíče: 200");
             $chybaV1($spustEndpoint("api/v1/arrange.php", "POST", [], json_encode($vstupV1), $dbEnv, $sKlicem("sk_live_neexistuje")), 401, "neplatny_klic", "DB v1: neplatný klíč");
 
             // Správa klíčů (klíč bez limitu).
@@ -1002,12 +998,12 @@ if (PHP_SAPI === 'cli') {
             assertSame([200, true], [$r["status"], $r["json"]["ok"] ?? null], "DB v1 keys DELETE");
             $chybaV1($spustEndpoint("api/v1/keys.php", "DELETE", ["id" => (string)$noveId], null, $dbEnv, $sKlicem($neomezeny)), 404, "klic_nenalezen", "DB v1 keys DELETE podruhé");
             $chybaV1($spustEndpoint("api/v1/keys.php", "DELETE", [], null, $dbEnv, $sKlicem($neomezeny)), 400, "neplatny_vstup", "DB v1 keys DELETE bez id");
-            $r = $spustEndpoint("api_keys.php", "GET", [], null, $dbEnv, $sKlicem($neomezeny));
-            assertSame([200, 3], [$r["status"], count($r["json"]["keys"] ?? [])], "DB legacy api_keys.php GET");
+            $r = $spustEndpoint("api/v1/keys.php", "GET", [], null, $dbEnv, $sKlicem($neomezeny));
+            assertSame([200, 3], [$r["status"], count($r["json"]["keys"] ?? [])], "DB v1 keys GET: 3 klíče po vytvoření");
         } finally {
             $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$userId]);
         }
-        ok("API v1 s DB: klíč (Bearer i X-Api-Key), X-RateLimit-*, 429 s Retry-After, správa klíčů, legacy 429.");
+        ok("API v1 s DB: klíč (Bearer i X-Api-Key), X-RateLimit-*, 429 s Retry-After, správa klíčů, printers bez klíče.");
     }
 
     ok("ALL OK");

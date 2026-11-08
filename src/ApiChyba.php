@@ -12,7 +12,7 @@
 
 class ApiChyba extends RuntimeException
 {
-    /** @var int HTTP status (400, 401, 403, 404, 405, 429, 500). */
+    /** @var int HTTP status (400, 401, 403, 404, 405, 410, 413, 429, 500). */
     public $status;
 
     /** @var string Strojový kód chyby (ASCII snake_case, např. neplatny_vstup). */
@@ -46,7 +46,7 @@ class ApiChyba extends RuntimeException
     }
 
     /**
-     * Lidsky čitelné zprávy (CLI, legacy endpointy): u chyb vstupu zprávy jednotlivých polí, jinak hlavní zpráva.
+     * Lidsky čitelné zprávy (CLI): u chyb vstupu zprávy jednotlivých polí, jinak hlavní zpráva.
      *
      * @return string[]
      */

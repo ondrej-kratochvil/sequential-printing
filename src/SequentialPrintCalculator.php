@@ -27,7 +27,7 @@ class SequentialPrintCalculator
     public const MAXIMALNI_POCET_PODLOZEK = 20;
 
     /**
-     * Výchozí tiskárna (Prusa MINI) - jediné místo, odkud ji berou UI (index.php), API (api.php) i CLI (bin/arrange.php).
+     * Výchozí tiskárna (Prusa MINI) - jediné místo, odkud ji berou UI (index.php), API v1 i CLI (bin/arrange.php).
      * Hodnoty jsou v předvolbě config/tiskarny.json (výchozí předvolba, viz PredvolbyTiskaren), tady se jen čtou.
      * Xl/Xr/Yl/Yr = vzdálenost trysky od levé/pravé/přední/zadní hrany hlavy (mm).
      * posun_zprava = korekce pro Prusa MINI, kdy objekt umístěný zcela vpravo má deformovanou stěnu.
@@ -1468,7 +1468,7 @@ class SequentialPrintCalculator
     }
 
     /**
-     * Veřejný JSON kontrakt výsledku - stejné klíče vrací api.php i bin/arrange.php.
+     * Veřejný JSON kontrakt výsledku - stejné klíče vrací api/v1/arrange.php i bin/arrange.php.
      *
      * @param array $vysledek Výstup calculate()
      */
