@@ -1,0 +1,17 @@
+# Volitelné hezké URL pro API v1 (/api/v1/arrange místo /api/v1/arrange.php).
+# Není podmínkou: bez mod_rewrite fungují přímo soubory *.php (WAMP, Český hosting).
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME}.php -f
+    RewriteRule ^([a-z]+)/?$ $1.php [L,QSA]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.+)$ index.php?endpoint=$1 [L,QSA]
+</IfModule>
+
+# Některé konfigurace PHP (CGI/FastCGI) nepředají hlavičku Authorization do PHP; X-Api-Key funguje vždy.
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+</IfModule>
