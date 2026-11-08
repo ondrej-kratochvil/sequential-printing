@@ -2,8 +2,9 @@
 /**
  * Účet (Milník D): přihlášení, registrace, odhlášení a správa projektů.
  *
- * Stránky (GET ?stranka=): prihlaseni, registrace, projekty.
- * Formuláře (POST, pole `akce` + `csrf`): prihlasit, registrovat, odhlasit, prejmenovat_projekt, smazat_projekt.
+ * Stránky (GET ?stranka=): prihlaseni, registrace, projekty, klice (API klíče).
+ * Formuláře (POST, pole `akce` + `csrf`): prihlasit, registrovat, odhlasit, prejmenovat_projekt, smazat_projekt,
+ * vytvorit_klic, zneplatnit_klic.
  * GET ?akce=otevrit&id=N: otevře projekt = přesměruje na index.php s parametry formuláře (výpočet hned proběhne).
  * POST ?akce=ulozit_projekt (JSON, hlavička X-CSRF-Token): uloží vstup formuláře z index.php, chyby ve formátu API v1.
  *
@@ -16,6 +17,10 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Rela
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Ucty.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Projekty.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'StrankaUctu.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'SpravaKlicu.php';
+
+/** Stránky jen pro přihlášeného uživatele. */
+const STRANKY_UCTU = ['projekty', 'klice'];
 
 $akce_get = isset($_GET['akce']) && is_string($_GET['akce']) ? $_GET['akce'] : '';
 
@@ -166,6 +171,25 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             }
         }
         presmeruj('ucet.php?stranka=projekty');
+    } elseif ($akce === 'vytvorit_klic' || $akce === 'zneplatnit_klic') {
+        // API klíče přes sdílenou logiku SpravaKlicu (stejná jako api/v1/keys.php).
+        $uzivatel = vyzaduj_prihlaseni($uzivatel);
+        if ($akce === 'vytvorit_klic') {
+            $limit = isset($_POST['rate_limit_per_min']) && $_POST['rate_limit_per_min'] !== '' ? $_POST['rate_limit_per_min'] : SpravaKlicu::VYCHOZI_LIMIT;
+            $overeno = SpravaKlicu::overVstup(['name' => $_POST['name'] ?? '', 'rate_limit_per_min' => $limit]);
+            if (!empty($overeno['chyby'])) {
+                Relace::nastavZpravu(implode(' ', array_column($overeno['chyby'], 'zprava')), 'chyba');
+            } else {
+                $novy = SpravaKlicu::vytvor($pdo, $uzivatel['id'], $overeno['name'], $overeno['rate_limit_per_min']);
+                // Plaintext klíče jen do session na jedno zobrazení (po přesměrování se ukáže a hned smaže).
+                $_SESSION['novy_klic'] = ['id' => $novy['id'], 'name' => $novy['name'], 'api_key' => $novy['api_key']];
+            }
+        } else {
+            $id = isset($_POST['id']) && is_string($_POST['id']) && ctype_digit($_POST['id']) ? (int)$_POST['id'] : 0;
+            $ok = SpravaKlicu::zneplatni($pdo, $uzivatel['id'], $id);
+            Relace::nastavZpravu($ok ? 'Klíč je zneplatněný, API ho už nepřijme.' : 'Klíč nenalezen nebo už je zneplatněný.', $ok ? 'ok' : 'chyba');
+        }
+        presmeruj('ucet.php?stranka=klice');
     } else {
         presmeruj('ucet.php');
     }
@@ -174,14 +198,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 // --- Stránky (GET) ---
 if ($stranka === '') $stranka = $uzivatel ? 'projekty' : 'prihlaseni';
 if ($uzivatel && in_array($stranka, ['prihlaseni', 'registrace'], true)) presmeruj('ucet.php?stranka=projekty');
-if (!in_array($stranka, ['prihlaseni', 'registrace', 'projekty'], true)) {
+if (!in_array($stranka, array_merge(['prihlaseni', 'registrace'], STRANKY_UCTU), true)) {
     http_response_code(404);
     StrankaUctu::zacatek('Nenalezeno', $uzivatel);
     echo '<div class="card uzka"><h2>Stránka nenalezena</h2><div class="toolbar"><a class="button" href="ucet.php">Účet</a></div></div>';
     StrankaUctu::konec();
     exit;
 }
-if (!$uzivatel && $stranka === 'projekty') vyzaduj_prihlaseni(null);
+if (!$uzivatel && in_array($stranka, STRANKY_UCTU, true)) vyzaduj_prihlaseni(null);
 
 $h = function ($text): string { return StrankaUctu::h($text); };
 $zpet_get = bezpecny_navrat($_GET['zpet'] ?? ($_POST['zpet'] ?? ''));
@@ -222,6 +246,47 @@ if ($stranka === 'prihlaseni' || $stranka === 'registrace') {
     echo '</div>';
     echo '<p class="muted"><a href="index.php">Zpět na výpočet</a> (funguje i bez přihlášení).</p>';
     StrankaUctu::konec();
+    exit;
+}
+
+// API klíče (D1): seznam, nový klíč (ukáže se jen jednou), zneplatnění.
+if ($stranka === 'klice') {
+    $novy_klic = isset($_SESSION['novy_klic']) && is_array($_SESSION['novy_klic']) ? $_SESSION['novy_klic'] : null;
+    unset($_SESSION['novy_klic']);
+    $klice = SpravaKlicu::seznam($pdo, $uzivatel['id']);
+    StrankaUctu::zacatek('API klíče', $uzivatel, 'klice');
+    if ($novy_klic) {
+        echo '<div class="card" id="novy_klic"><h2>Nový klíč „' . $h($novy_klic['name']) . '“</h2>';
+        echo '<p><strong>Zkopíruj si ho teď, znovu ho už neuvidíš</strong> (v databázi je jen jeho otisk).</p>';
+        echo '<div class="tajne" id="novy_klic_hodnota">' . $h($novy_klic['api_key']) . '</div>';
+        echo '<div class="toolbar"><button class="small" type="button" id="kopirovat_klic">' . StrankaUctu::ikona('copy') . '<span class="lbl">Kopírovat</span></button>';
+        echo '<span class="muted">Použití: hlavička <code>Authorization: Bearer &lt;klíč&gt;</code> nebo <code>X-Api-Key</code>.</span></div></div>';
+    }
+    echo '<div class="card"><h2>API klíče</h2>';
+    echo '<p class="muted">Klíčem se přihlašuje integrace k API v1 (<code>arrange</code>, <code>import</code>, <code>export</code>, <code>keys</code>, <code>projects</code>). Limit = nejvýš požadavků za minutu, 0 = bez limitu.</p>';
+    if (empty($klice)) {
+        echo '<p>Zatím nemáš žádný klíč.</p>';
+    } else {
+        echo '<div class="table-wrap"><table><tr><th>Název</th><th>Prefix</th><th class="cislo">Limit / min</th><th>Vytvořen</th><th>Naposledy použit</th><th>Stav</th><th>Akce</th></tr>';
+        foreach ($klice as $k) {
+            $platny = $k['revoked_at'] === null;
+            echo '<tr><td>' . $h($k['name']) . '</td><td><code>' . $h($k['key_prefix']) . '…</code></td><td class="cislo">' . ((int)$k['rate_limit_per_min'] === 0 ? 'bez limitu' : (int)$k['rate_limit_per_min']) . '</td>';
+            echo '<td>' . $h(StrankaUctu::datum($k['created_at'])) . '</td><td>' . ($k['last_used_at'] ? $h(StrankaUctu::datum($k['last_used_at'])) : '<span class="muted">nikdy</span>') . '</td>';
+            echo '<td>' . ($platny ? '<span class="stitek ok">platný</span>' : '<span class="stitek">zneplatněn ' . $h(StrankaUctu::datum($k['revoked_at'])) . '</span>') . '</td><td>';
+            if ($platny) {
+                echo '<details><summary class="button small">' . StrankaUctu::ikona('x') . 'Zneplatnit</summary><form method="post" action="ucet.php?stranka=klice" class="inline" style="margin-top:6px;">' . StrankaUctu::csrfPole()
+                    . '<input type="hidden" name="akce" value="zneplatnit_klic" /><input type="hidden" name="id" value="' . (int)$k['id'] . '" />'
+                    . '<span class="muted">Integrace s tímto klíčem přestane fungovat. Nejde to vrátit.</span><button class="small danger" type="submit">' . StrankaUctu::ikona('x') . 'Ano, zneplatnit</button></form></details>';
+            }
+            echo '</td></tr>';
+        }
+        echo '</table></div>';
+    }
+    echo '<h3>Nový klíč</h3><form method="post" action="ucet.php?stranka=klice" class="inline">' . StrankaUctu::csrfPole() . '<input type="hidden" name="akce" value="vytvorit_klic" />';
+    echo '<label class="pole" style="margin:0;">Název <input type="text" name="name" maxlength="100" required="required" placeholder="např. skript doma" /></label>';
+    echo '<label class="pole" style="margin:0;">Limit / min <input type="number" name="rate_limit_per_min" min="0" max="' . SpravaKlicu::MAXIMALNI_LIMIT . '" step="1" value="' . SpravaKlicu::VYCHOZI_LIMIT . '" style="width: 8rem;" /></label>';
+    echo '<button class="primary" type="submit" style="align-self: end;">' . StrankaUctu::ikona('plus') . 'Vytvořit klíč</button></form></div>';
+    StrankaUctu::konec($novy_klic ? 'document.getElementById("kopirovat_klic").addEventListener("click", async function () { var t = document.getElementById("novy_klic_hodnota").textContent; var l = this.querySelector(".lbl"); try { await navigator.clipboard.writeText(t); l.textContent = "Zkopírováno"; } catch (e) { var r = document.createRange(); r.selectNodeContents(document.getElementById("novy_klic_hodnota")); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); l.textContent = "Označeno, zkopíruj Ctrl+C"; } });' : '');
     exit;
 }
 

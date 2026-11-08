@@ -11,6 +11,7 @@
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Ucty.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Projekty.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Relace.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'SpravaKlicu.php';
 
 // Stránka (index.php, ucet.php) jako samostatný proces: env, $_GET, $_POST, $_SERVER; vrací výstup včetně warningů.
 $spustStranku = function (string $soubor, array $get = [], array $env = [], array $post = [], array $server = []): string {
@@ -223,6 +224,32 @@ try {
     $r = $spustEndpoint("api/v1/projects.php", "DELETE", ["id" => (string)$idApi], null, $dbEnv, $sKlicem);
     assertSame([200, true], [$r["status"], $r["json"]["ok"] ?? null], "v1 projects DELETE");
     $chybaV1($spustEndpoint("api/v1/projects.php", "PUT", [], '{"name":"x"}', $dbEnv, $sKlicem), 400, "neplatny_vstup", "v1 projects PUT bez id");
+
+    // D1: API klíče v UI jen pro přihlášeného; CLI create_api_key.php jde přes sdílenou SpravaKlicu.
+    $html = $spustStranku("ucet.php", ["stranka" => "klice"], $dbEnv);
+    assertTrue(strpos($html, "Vytvořit klíč") === false, "ucet.php: API klíče bez přihlášení se neukážou");
+    $spustCliDb = function (array $argumenty) use ($dbEnv): string {
+        $cmd = phpPrikaz() . ' ' . implode(' ', array_map('escapeshellarg', $argumenty));
+        $proc = proc_open($cmd, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes, null, array_merge(getenv(), $dbEnv));
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($proc);
+        return $out;
+    };
+    $bin = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR;
+    $out = $spustCliDb([$bin . 'create_api_key.php', (string)$idB, 'cli klic', '15']);
+    assertTrue((bool)preg_match('/api_key: (sk_live_[0-9a-f]{64})/', $out, $m), "CLI create_api_key: vypíše klíč ({$out})");
+    $klicB = SpravaKlicu::seznam($pdo, $idB);
+    assertSame([1, "cli klic", 15, substr($m[1], 0, 12)], [count($klicB), $klicB[0]["name"], (int)$klicB[0]["rate_limit_per_min"], $klicB[0]["key_prefix"]], "CLI create_api_key: klíč v DB přes SpravaKlicu");
+    $out = $spustCliDb([$bin . 'create_api_key.php', (string)$idB, 'x', '1000000']);
+    assertTrue(strpos($out, "příliš vysoké") !== false && count(SpravaKlicu::seznam($pdo, $idB)) === 1, "CLI create_api_key: stejná validace jako API");
+    // bin/admin.php: role admina.
+    $out = $spustCliDb([$bin . 'admin.php', strtoupper($emailB)]);
+    assertTrue(strpos($out, "je admin") !== false && (int)$pdo->query("SELECT is_admin FROM users WHERE id = {$idB}")->fetchColumn() === 1, "bin/admin.php: udělá admina ({$out})");
+    $spustCliDb([$bin . 'admin.php', $emailB, '--odebrat']);
+    assertSame(0, (int)$pdo->query("SELECT is_admin FROM users WHERE id = {$idB}")->fetchColumn(), "bin/admin.php --odebrat");
+    assertTrue(strpos($spustCliDb([$bin . 'admin.php', "nikdo-{$znacka}@example.com"]), "neexistuje") !== false, "bin/admin.php: neznámý uživatel");
 } finally {
     $pdo->prepare("DELETE FROM users WHERE email LIKE ?")->execute(["%-{$znacka}@example.com"]);
     $pdo->prepare("DELETE FROM login_attempts WHERE ip LIKE ? OR email LIKE ?")->execute([$ip . "%", "%-{$znacka}@example.com"]);

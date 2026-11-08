@@ -36,7 +36,7 @@ TEST_DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_test;charset=u
 - Každé tlačítko má vlevo od textu čárovou ikonu (inline SVG sprite `<symbol id="i-…">` na začátku `<body>`, vkládá ji PHP funkce `ikona()`; barva podle textu tlačítka, `aria-hidden`). Tvary ikon jsou z [Lucide](https://lucide.dev) (licence ISC), žádná externí knihovna ani CDN se nenačítá.
 - Jen ikonu mají akce v řádcích tabulky objektů (nahoru, dolů, duplikovat, smazat) a šipky předchozí/další instance u tiskové hlavy; popis je v `title` a `aria-label`.
 - Hlavní lišta formuláře ukazuje jen Vypočítat, Přidat řádek, Nastavení a Import 3MF/STL. Méně používané akce jsou v rozbalovací nabídce **Další funkce** (`<details>`): Příklad, Uložit do prohlížeče, Načíst z prohlížeče, Smazat uložené, Export a Import vstupu (JSON), Kopírovat odkaz. Nabídka jde ovládat klávesnicí, zavře ji Escape, klik mimo i volba položky.
-- **S DB** (viz [Účty, projekty a DB](#účty-projekty-a-db)): v hlavičce vpravo Přihlásit / Registrovat, po přihlášení e-mail, Moje projekty a Odhlásit. Přihlášený má v hlavní liště navíc **Uložit projekt** a v Další funkce **Moje projekty**; nepřihlášený v Další funkce „Uložit projekt (po přihlášení)“. Bez DB se nic z toho nezobrazí.
+- **S DB** (viz [Účty, projekty a DB](#účty-projekty-a-db)): v hlavičce vpravo Přihlásit / Registrovat, po přihlášení e-mail, Moje projekty a Odhlásit. Přihlášený má v hlavní liště navíc **Uložit projekt** a v Další funkce **Moje projekty** a **API klíče**; nepřihlášený v Další funkce „Uložit projekt (po přihlášení)“. Bez DB se nic z toho nezobrazí.
 
 ## Import a export 3MF
 
@@ -345,7 +345,7 @@ Konfigurace DB přes env proměnné:
 
 Vypnutí požadavku na klíč (jen pro lokální demo): `API_REQUIRE_KEY=0`
 
-Vytvoření uživatele a klíče (CLI):
+Klíče si přihlášený uživatel spravuje v UI: **API klíče** (`ucet.php?stranka=klice`, viz [API klíče v UI](#api-klíče-v-ui)). Vytvoření uživatele a klíče z příkazové řádky (CLI):
 
 ```bash
 php bin/create_user.php user@example.com 'heslo'
@@ -437,3 +437,13 @@ SetEnv DB_PASS "…"
 - **Moje projekty** (`ucet.php?stranka=projekty`): seznam (název, počet objektů, kdy upraveno), Otevřít (přesměruje na `index.php` s parametry formuláře, výpočet hned proběhne), Přejmenovat, Smazat (s potvrzením „Opravdu smazat?“, funguje i bez JS).
 - Nahraný model 3MF/STL (sítě) se do projektu neukládá, jen rozměry a názvy objektů; pro export se sítěmi je potřeba model nahrát znovu.
 - Cizí projekt se chová jako neexistující (UI, API). Data se před uložením očistí (`Projekty::overData`: známé klíče, nejvýš 200 objektů, 256 kB).
+
+### API klíče v UI
+
+Stránka **API klíče** (`ucet.php?stranka=klice`, odkaz v navigaci účtu a v Další funkce) pro přihlášeného uživatele:
+
+- seznam jeho klíčů: název, prefix (prvních 12 znaků, celý klíč se neukládá), limit požadavků za minutu (0 = bez limitu), kdy vytvořen, kdy naposledy použit, stav (platný / zneplatněn),
+- **Vytvořit klíč** (název, limit): klíč se ukáže **jen jednou** hned po vytvoření (s tlačítkem Kopírovat); v DB je jen jeho sha256. Plaintext projde jen session pro jedno zobrazení po přesměrování a hned se z ní smaže,
+- **Zneplatnit** (s potvrzením): API klíč dál odmítá s 401 `zneplatneny_klic`, záznam zůstane v seznamu.
+
+Logika je jedna pro UI, `api/v1/keys.php` i `bin/create_api_key.php`: `src/SpravaKlicu.php` (stejná validace názvu a limitu).
