@@ -337,7 +337,7 @@ header("Expires: 0");
 /* Vypsání HTML */
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="cs">
   <head>
     <title>Sekvenční tisk</title>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -1329,11 +1329,14 @@ header("Expires: 0");
 			.container { max-width: none; margin: 0 auto; padding: 18px; }
 			/* Siroky monitor: vizualizace vpravo vedle formulare, pri posouvani zustava videt (Ondra 8. 11. 2026). */
 			@media (min-width: 1100px) {
-				.app-grid:has(> .app-right) { display: grid; grid-template-columns: minmax(540px, 1fr) minmax(0, 1.3fr); gap: 14px; align-items: start; }
+				.app-grid:has(> .app-right) { display: grid; grid-template-columns: minmax(540px, 1fr) auto; gap: 14px; align-items: start; }
 				.app-right { position: sticky; top: 12px; }
+				/* karta podle podlozky: texty (popis, detail instance pri najeti) se zalomi, sloupec nerozsiri */
+				.app-right .card:not(.is-fullscreen) { width: min-content; }
 				.app-grid:has(> .app-right) .layout { grid-template-columns: 1fr; }
 				/* podlozka co nejvetsi, ale cela na vysku okna */
-				.app-right #tiskova_podlozka { max-width: none; width: min(100%, calc((100vh - 210px) * var(--bed-x) / var(--bed-y))); margin: 0 auto; }
+				.app-right .card:not(.is-fullscreen) #tiskova_podlozka { max-width: none; width: min(calc((100vh - 210px) * var(--bed-x) / var(--bed-y)), calc(100vw - 640px)); margin: 0; }
+				/* pravy sloupec jen tak siroky jako podlozka (bez prazdneho mista po stranach), zbytek dostane formular */
 			}
 			.app-right { margin-top: 14px; }
 			@media (min-width: 1100px) { .app-right { margin-top: 0; } }
