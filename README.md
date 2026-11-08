@@ -18,6 +18,23 @@ php tests/run.php
   - `po_radach` - celá řada se posune o stejný krok, zbylé místo se rozdělí mezi řady (1. řada na startu, poslední u protějšího okraje), kusy v řadě mají stejné Y (u stejně hlubokých kusů bez posunu kvůli vodicím tyčím). Mezery mezi řadami se jen zvětší, takže kolize nepřibudou; výsledek stejně ověří kontrola kolizí.
   V UI přepínač pod volbou „Rozprostřít instance v ose Y“, v GET `rozprostreni_y_rezim=po_radach`, v CLI a API `options.rozprostreni_y_rezim`. Neznámá hodnota = `po_instancich` (CLI ji odmítne jako chybný vstup).
 - **Rozprostřít po celé podložce**: zkouší měnit počet řad tak, aby se instance využily po celé ploše.
+- **Rotace o 90°** (`objekty[0][rotace]=1`, v UI checkbox „Rotace 90°“ v tabulce objektů; globálně `povolit_rotaci_vsem=1`, v UI „Povolit rotaci o 90° všem objektům“ v Nastavení): výpočet smí objekt otočit kolem osy Z o 90° (záměna rozměrů x a y), když se tak vejde víc kusů. Výchozí vypnuto (kompatibilita: bez volby je výsledek stejný jako dřív). Viz [Rotace o 90°](#rotace-o-90).
+
+## Rotace o 90°
+
+Objekty s povolenou rotací (`rotace: true` u objektu nebo `povolit_rotaci_vsem: true` v nastavení; čtvercový půdorys se přeskočí) výpočet zkusí i otočené o 90° kolem Z (x a y zaměněné). Všechny kombinace by u více objektů rostly exponenciálně, proto se počítá nejvýš `2 + počet povolených objektů` variant:
+
+1. nic neotočeno (stejný výpočet jako bez rotace),
+2. všechny povolené objekty otočené,
+3. greedy po objektech: od lepší z variant 1 a 2 se u každého povoleného objektu (v pořadí vstupu) zkusí opačná orientace a nechá se, když je výsledek lepší.
+
+Když se už v 1. variantě vešly všechny požadované kusy (bez `max`) bez úprav kontrolou kolizí, další varianty se nepočítají. Každá varianta prochází celým výpočtem včetně kontroly kolizí (viz níže), takže i otočený výsledek je bez kolize.
+
+Lepší varianta = bez kolize, pak víc umístěných instancí, pak bez úprav kontrolou kolizí (méně kroků v `kontrola_kolizi.postup`), pak méně otočených objektů; při úplné shodě zůstane dřívější varianta, tedy objekt neotočený. Nastavení rozprostření (X, Y, po celé podložce) je ve všech variantách stejné jako u uživatele.
+
+Výstup: `pozice[].otoceno` (`true` = kus je otočený, **v sliceru ho otoč o 90° kolem Z**, X/Y je pořád jeho střed), `otocene_objekty` (klíče otočených objektů) a v `objekty` u otočeného objektu `otoceno: true` a rozměry `x`/`y` tak, jak leží na podložce (už zaměněné). Výjimka: JSON z `index.php?format=json` vrací v `objekty` vstup formuláře (původní rozměry) s `rotace` a `otoceno`. UI otočený kus ve vizualizaci kreslí otočeným obdélníkem se šrafováním a značkou ↻, v tabulce pozic je sloupec „Otočeno“ a nad výsledkem řádek „Otočeno o 90°: objekt …“. U limitu je objekt označený „otočený o 90°“.
+
+Kde se volba zadává: UI (checkbox u objektu, přepínač v Nastavení; projde do sdíleného odkazu i exportu/importu), GET (`objekty[0][rotace]=1`, `povolit_rotaci_vsem=1`), CLI a API (`objekty[].rotace`, `options.povolit_rotaci_vsem`). CLI s povolenou rotací přijme i objekt, který se na podložku vejde jen otočený.
 
 ## CLI (bez DB a bez webového serveru)
 
@@ -32,15 +49,15 @@ Vstup:
 ```json
 {
   "objekty": [{"x": 50, "y": 50, "z": 100, "instances": {"d": 3}, "nazev": "krabička"},
-              {"x": 20, "y": 20, "z": 10, "instances": {"d": "max"}}],
-  "options": {"rozprostrit_instance_v_ose_x": false, "rozprostreni_y_rezim": "po_radach"},
+              {"x": 15, "y": 100, "z": 50, "instances": {"d": "max"}, "rotace": true}],
+  "options": {"rozprostrit_instance_v_ose_x": false, "rozprostreni_y_rezim": "po_radach", "povolit_rotaci_vsem": false},
   "printer": {"Xl": 36.5, "Xr": 12}
 }
 ```
 
-- `objekty` je povinné pole; `instances.d` je celé číslo ≥ 1 nebo `"max"` (bez `instances` = 1 kus); `nazev` je volitelný text a propíše se do `pozice`, `objekty` a `limit` ve výstupu (oříznutý na 60 znaků).
+- `objekty` je povinné pole; `instances.d` je celé číslo ≥ 1 nebo `"max"` (bez `instances` = 1 kus); `nazev` je volitelný text a propíše se do `pozice`, `objekty` a `limit` ve výstupu (oříznutý na 60 znaků); `rotace` (`true`/`false`) povolí otočení o 90° (viz [Rotace o 90°](#rotace-o-90)).
 - `options` a `printer` jsou volitelné, chybějící hodnoty = výchozí jako v UI (Prusa MINI: x/y/z 180, posun_zprava 1, Xr 12, Xl 36.5, Yr 15.5, Yl 15.5, vodici_tyce_Z 21, vodici_tyce_Y 17.4). `printer` může mít i `head_steps`.
-- Výstup (stdout, JSON): stejné klíče jako `api.php` - `positions`, `pozice`, `pocet_instanci`, `pocet_podlozek`, `objekty`, `printer`, `kontrola_kolizi`, `limit`.
+- Výstup (stdout, JSON): stejné klíče jako `api.php` - `positions`, `pozice`, `pocet_instanci`, `pocet_podlozek`, `objekty`, `printer`, `kontrola_kolizi`, `limit`, `otocene_objekty`.
 - Exit code: `0` = OK, `1` = chybný vstup (na stdout `{"error": "..."}`, hláška i na stderr), `2` = výsledek obsahuje kolizi (`kontrola_kolizi.ok = false`; výpočet se tomu snaží zabránit, viz níže).
 
 ## Kontrola kolizí
@@ -89,10 +106,10 @@ curl 'http://localhost/index.php?format=json&objekty[0][x]=50&objekty[0][y]=50&o
 - `pozice`: totéž s metadaty, aby integrace věděla, který kus je který:
 
 ```json
-{"poradi": 1, "objekt": 0, "instance": 1, "rada": 1, "X": 154.11, "Y": 22.98}
+{"poradi": 1, "objekt": 0, "instance": 1, "rada": 1, "X": 154.11, "Y": 22.98, "otoceno": false}
 ```
 
-  `poradi` = pořadí tisku (1, 2, …), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm, `nazev` = název objektu (jen když je zadaný).
+  `poradi` = pořadí tisku (1, 2, …), `objekt` = klíč objektu ve vstupu `objekty`, `instance` = pořadové číslo instance objektu, `rada` = řada na podložce, `X`/`Y` = střed v mm, `nazev` = název objektu (jen když je zadaný), `otoceno` = kus je otočený o 90° kolem Z (v sliceru ho otoč, viz [Rotace o 90°](#rotace-o-90)).
   Při tisku po objektech dej v sliceru každý kus jako samostatný objekt v pořadí `poradi` (PrusaSlicer pořadí seznamu dodrží).
 - `kontrola_kolizi`: výsledek nezávislé kontroly kolizí (viz [Kontrola kolizí](#kontrola-kolizí)):
 

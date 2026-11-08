@@ -6,11 +6,11 @@
 //   echo '{"objekty":[{"x":50,"y":50,"z":100,"instances":{"d":3}}]}' | php bin/arrange.php
 //
 // Vstup (JSON):
-//   {"objekty": [{"x": 50, "y": 50, "z": 100, "instances": {"d": 3 | "max"}, "nazev": "volitelné"}],
+//   {"objekty": [{"x": 50, "y": 50, "z": 100, "instances": {"d": 3 | "max"}, "nazev": "volitelné", "rotace": true}],
 //    "options": {...}, "printer": {...}}      // options a printer jsou volitelné (výchozí = Prusa MINI jako v UI)
 //
 // Výstup: JSON se stejnými klíči jako api.php (positions, pozice, pocet_instanci, pocet_podlozek,
-// objekty, printer, kontrola_kolizi, limit). Exit code: 0 = OK, 1 = chybný vstup, 2 = výsledek obsahuje kolizi.
+// objekty, printer, kontrola_kolizi, limit, otocene_objekty). Exit code: 0 = OK, 1 = chybný vstup, 2 = výsledek obsahuje kolizi.
 
 require_once __DIR__ . '/../src/SequentialPrintCalculator.php';
 
@@ -56,6 +56,10 @@ if (!is_array($options)) chybnyVstup("'options' musí být objekt.");
 if (isset($options['rozprostreni_y_rezim']) && !in_array($options['rozprostreni_y_rezim'], SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY, true)) {
     chybnyVstup("'options.rozprostreni_y_rezim' musí být " . implode(' nebo ', SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY) . '.');
 }
+if (isset($options['povolit_rotaci_vsem']) && !is_bool($options['povolit_rotaci_vsem']) && !in_array($options['povolit_rotaci_vsem'], [0, 1], true)) {
+    chybnyVstup("'options.povolit_rotaci_vsem' musí být true/false.");
+}
+$rotaceVsem = !empty($options['povolit_rotaci_vsem']);
 foreach ($printer as $klic => $hodnota) {
     if ($klic === 'head_steps') {
         if (!is_array($hodnota)) chybnyVstup("'printer.head_steps' musí být pole.");
@@ -72,13 +76,25 @@ if (array_keys($objekty) !== range(0, count($objekty) - 1)) chybnyVstup("'objekt
 foreach ($objekty as $i => $objekt) {
     $cislo = $i + 1;
     if (!is_array($objekt)) chybnyVstup("objekt {$cislo} musí být objekt s x, y, z.");
+    if (isset($objekt['rotace']) && !is_bool($objekt['rotace']) && !in_array($objekt['rotace'], [0, 1], true)) {
+        chybnyVstup("objekt {$cislo}: 'rotace' musí být true/false.");
+    }
     foreach (['x', 'y', 'z'] as $osa) {
         if (!isset($objekt[$osa]) || !is_numeric($objekt[$osa]) || (float)$objekt[$osa] <= 0) {
             chybnyVstup("objekt {$cislo}: '{$osa}' musí být kladné číslo.");
         }
-        $limit = (float)$tiskarna[$osa] - ($osa === 'x' ? (float)$tiskarna['posun_zprava'] : 0.0);
-        if ((float)$objekt[$osa] > $limit) {
-            chybnyVstup("objekt {$cislo}: '{$osa}' = {$objekt[$osa]} mm je větší než tisková plocha ({$limit} mm).");
+    }
+    $limity = [];
+    foreach (['x', 'y', 'z'] as $osa) {
+        $limity[$osa] = (float)$tiskarna[$osa] - ($osa === 'x' ? (float)$tiskarna['posun_zprava'] : 0.0);
+    }
+    // S povolenou rotací stačí, když se objekt vejde aspoň otočený o 90° (x a y zaměněné).
+    $vejdeSeOtoceny = ($rotaceVsem || !empty($objekt['rotace']))
+        && (float)$objekt['y'] <= $limity['x'] && (float)$objekt['x'] <= $limity['y'];
+    foreach (['x', 'y', 'z'] as $osa) {
+        if ($osa !== 'z' && $vejdeSeOtoceny) continue;
+        if ((float)$objekt[$osa] > $limity[$osa]) {
+            chybnyVstup("objekt {$cislo}: '{$osa}' = {$objekt[$osa]} mm je větší než tisková plocha ({$limity[$osa]} mm).");
         }
     }
     if (isset($objekt['instances'])) {

@@ -117,6 +117,8 @@ $umistit_na_stred_v_ose_y = (!empty($_GET) && (isset($_GET["umistit_na_stred_v_o
 $rozprostreni_y_rezim = (isset($_GET["rozprostreni_y_rezim"]) && in_array($_GET["rozprostreni_y_rezim"], SequentialPrintCalculator::ROZPROSTRENI_Y_REZIMY, true))
 	? $_GET["rozprostreni_y_rezim"]
 	: SequentialPrintCalculator::VYCHOZI_NASTAVENI["rozprostreni_y_rezim"];
+// Rotace o 90° kolem Z pro všechny objekty (jinak jen objekty se zaškrtnutou rotací). Výchozí vypnuto.
+$povolit_rotaci_vsem = (isset($_GET["povolit_rotaci_vsem"]) && $_GET["povolit_rotaci_vsem"]);
 
 /* Objekty (z UI/GET) */
 $objekty = [];
@@ -147,6 +149,7 @@ $text_nad_tabulkou = "";
 $datova_veta_json = "[]";
 $kontrola_kolizi = null;
 $limit = [];
+$otocene_objekty = [];
 
 if (!empty($objekty)) {
 	$objekty_input = $objekty; // zachovat pro formulář (aby se hodnoty po odeslání neměnily)
@@ -168,7 +171,8 @@ if (!empty($objekty)) {
 			"rozprostrit_instance_po_cele_podlozce" => $rozprostrit_instance_po_cele_podlozce,
 			"rozprostrit_instance_v_ose_x" => $rozprostrit_instance_v_ose_x,
 			"rozprostrit_instance_v_ose_y" => $rozprostrit_instance_v_ose_y,
-			"rozprostreni_y_rezim" => $rozprostreni_y_rezim
+			"rozprostreni_y_rezim" => $rozprostreni_y_rezim,
+			"povolit_rotaci_vsem" => $povolit_rotaci_vsem
 		]
 	);
 
@@ -176,8 +180,14 @@ if (!empty($objekty)) {
 
 	// Do UI vrátím původní rozměry, ale doplním instances[r] z výpočtu.
 	$objekty_vysledek = $vysledek["objekty"];
+	$otocene_objekty = $vysledek["otocene_objekty"] ?? [];
 	$objekty = $objekty_input;
 	foreach ($objekty as $id => $o) {
+		// Rotace: volba z formuláře jako bool; otoceno = výpočet objekt otočil o 90° (formulář drží původní rozměry).
+		if (SequentialPrintCalculator::jePovolenaRotace($o["rotace"] ?? null)) $objekty[$id]["rotace"] = true;
+		else unset($objekty[$id]["rotace"]);
+		unset($objekty[$id]["otoceno"]);
+		if (in_array($id, $otocene_objekty, true)) $objekty[$id]["otoceno"] = true;
 		if (!isset($objekty[$id]["instances"])) $objekty[$id]["instances"] = [];
 		if (isset($objekty_vysledek[$id]["instances"]["r"])) $objekty[$id]["instances"]["r"] = $objekty_vysledek[$id]["instances"]["r"];
 		// Název vždy v upravené podobě (oříznutý, bez řídicích znaků); prázdný název z výstupu vypustit.
@@ -239,7 +249,8 @@ if (isset($_GET["format"]) && $_GET["format"] === "json") {
 			"objekty" => $objekty,
 			"printer" => $printer_json,
 			"kontrola_kolizi" => $kontrola_kolizi,
-			"limit" => $limit
+			"limit" => $limit,
+			"otocene_objekty" => $otocene_objekty
 		],
 		JSON_UNESCAPED_UNICODE
 	);
@@ -297,7 +308,8 @@ header("Expires: 0");
 			function pridej_radek_do_tabulky (par_id_objektu) {
 				id_objektu++;
 				if (par_id_objektu) id_objektu = parseInt(par_id_objektu);
-				const { x = "", y = "", z = "", nazev = "" } = objekty[id_objektu] || {};
+				const { x = "", y = "", z = "", nazev = "", rotace = false } = objekty[id_objektu] || {};
+				const rotacePovolena = (rotace === true || rotace === 1 || rotace === "1");
 				instances = (objekty[id_objektu] ? objekty[id_objektu]["instances"]["d"] : "max");
 				const vysledny_pocet_instanci = (objekty[id_objektu] && objekty[id_objektu]["instances"]["r"]) || "";
 				const isMax = (instances === "max");
@@ -320,6 +332,7 @@ header("Expires: 0");
 								<input class="instances_d" type="hidden" name="objekty[${id_objektu}][instances][d]" value="${isMax ? "max" : escapeAttr(instancesNum)}" />
 							</div>
 						</td>
+						<td class="rotace_cell"><input class="rotace" type="checkbox" name="objekty[${id_objektu}][rotace]" value="1" ${rotacePovolena ? "checked" : ""} title="Povolit otočení o 90° kolem Z" /></td>
 						<td class="actions">
 							<div style="display:flex; gap:6px; flex-wrap:wrap;">
 								<button class="small row_action" type="button" data-action="up" title="Přesunout nahoru">↑</button>
@@ -342,6 +355,7 @@ header("Expires: 0");
 						rozprostrit_instance_v_ose_x: $("#rozprostrit_instance_v_ose_x").prop("checked") ? 1 : 0,
 						rozprostrit_instance_v_ose_y: $("#rozprostrit_instance_v_ose_y").prop("checked") ? 1 : 0,
 						rozprostreni_y_rezim: $("input[name='rozprostreni_y_rezim']:checked").val() || "po_instancich",
+						povolit_rotaci_vsem: $("#povolit_rotaci_vsem").prop("checked") ? 1 : 0,
 						rozprostrit_instance_po_cele_podlozce: $("#rozprostrit_instance_po_cele_podlozce").prop("checked") ? 1 : 0,
 						umistit_na_stred_v_ose_x: $("#umistit_na_stred_v_ose_x").prop("checked") ? 1 : 0,
 						umistit_na_stred_v_ose_y: $("#umistit_na_stred_v_ose_y").prop("checked") ? 1 : 0
@@ -357,6 +371,7 @@ header("Expires: 0");
 					const nazev = ($tr.find("input.nazev").val() || "").trim();
 					const objekt = { x: x, y: y, z: z, instances: { d: d } };
 					if (nazev !== "") objekt.nazev = nazev;
+					if ($tr.find("input.rotace").prop("checked")) objekt.rotace = true;
 					state.objekty.push(objekt);
 				});
 				return state;
@@ -377,6 +392,7 @@ header("Expires: 0");
 				$("#rozprostrit_instance_v_ose_x").prop("checked", !!n.rozprostrit_instance_v_ose_x);
 				$("#rozprostrit_instance_v_ose_y").prop("checked", !!n.rozprostrit_instance_v_ose_y);
 				$("#rozprostreni_y_rezim_" + (n.rozprostreni_y_rezim === "po_radach" ? "po_radach" : "po_instancich")).prop("checked", true);
+				$("#povolit_rotaci_vsem").prop("checked", !!n.povolit_rotaci_vsem);
 				$("#rozprostrit_instance_po_cele_podlozce").prop("checked", !!n.rozprostrit_instance_po_cele_podlozce);
 				$("#umistit_na_stred_v_ose_x").prop("checked", !!n.umistit_na_stred_v_ose_x);
 				$("#umistit_na_stred_v_ose_y").prop("checked", !!n.umistit_na_stred_v_ose_y);
@@ -689,12 +705,14 @@ header("Expires: 0");
 						// Generování share linku v hashi
 						const state = get_form_state();
 						// Minimalizace JSONu pro URL
-						// o: [x, y, z, d, název?] (název jen když je vyplněný - staré odkazy mají 4 prvky),
-						// n[5]: 1 = rozprostření v ose Y po řadách (staré odkazy ho nemají = po instancích).
+						// o: [x, y, z, d, název?, rotace?] (název jen když je vyplněný nebo je povolená rotace - staré odkazy mají 4 prvky;
+						// rotace = 1 jen když je povolená), n[5]: 1 = rozprostření v ose Y po řadách (staré odkazy ho nemají = po instancích),
+						// n[6]: 1 = povolit rotaci všem objektům.
 						const minState = {
 							o: state.objekty.map(o => {
 								const arr = [o.x, o.y, o.z, (o.instances && o.instances.d === "max") ? "m" : o.instances.d];
-								if (o.nazev) arr.push(o.nazev);
+								if (o.nazev || o.rotace) arr.push(o.nazev || "");
+								if (o.rotace) arr.push(1);
 								return arr;
 							}),
 							n: [
@@ -703,7 +721,8 @@ header("Expires: 0");
 								state.nastaveni.rozprostrit_instance_po_cele_podlozce ? 1 : 0,
 								state.nastaveni.umistit_na_stred_v_ose_x ? 1 : 0,
 								state.nastaveni.umistit_na_stred_v_ose_y ? 1 : 0,
-								state.nastaveni.rozprostreni_y_rezim === "po_radach" ? 1 : 0
+								state.nastaveni.rozprostreni_y_rezim === "po_radach" ? 1 : 0,
+								state.nastaveni.povolit_rotaci_vsem ? 1 : 0
 							]
 						};
 						const jsonStr = JSON.stringify(minState);
@@ -738,12 +757,14 @@ header("Expires: 0");
 									y: arr[1],
 									z: arr[2],
 									instances: { d: (arr[3] === "m" ? "max" : arr[3]) },
-									nazev: (typeof arr[4] === "string" ? arr[4] : "")
+									nazev: (typeof arr[4] === "string" ? arr[4] : ""),
+									rotace: (arr[5] === 1)
 								})),
 								nastaveni: {
 									rozprostrit_instance_v_ose_x: !!minState.n[0],
 									rozprostrit_instance_v_ose_y: !!minState.n[1],
 									rozprostreni_y_rezim: (minState.n[5] ? "po_radach" : "po_instancich"),
+									povolit_rotaci_vsem: !!minState.n[6],
 									rozprostrit_instance_po_cele_podlozce: !!minState.n[2],
 									umistit_na_stred_v_ose_x: !!minState.n[3],
 									umistit_na_stred_v_ose_y: !!minState.n[4]
@@ -922,7 +943,8 @@ header("Expires: 0");
 
 					const zInfo = (showRod && printer && printer.vodici_tyce_Z !== undefined) ? `, vodící tyče od Z=${printer.vodici_tyce_Z}mm` : '';
 					const nazevInfo = el.dataset.nazev ? ` (${el.dataset.nazev})` : '';
-					setDetails(`Vybráno: Objekt ${o}${nazevInfo}, instance ${i} — výška ${oz}mm${zInfo}`);
+					const otocenoInfo = el.dataset.otoceno ? ' (otočeno o 90°)' : '';
+					setDetails(`Vybráno: Objekt ${o}${nazevInfo}${otocenoInfo}, instance ${i} — výška ${oz}mm${zInfo}`);
 				}
 
 				function setSelected(idx) {
@@ -1258,6 +1280,11 @@ header("Expires: 0");
 			.modal .hint { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
 			#io_text { width: 100%; min-height: 220px; }
 			#tiskova_podlozka .instance small { opacity: 0.9; font-weight: 600; }
+			/* Kus otočený o 90° kolem Z: šrafování, aby bylo vidět i bez tooltipu. */
+			#tiskova_podlozka .instance.otocene {
+				background: repeating-linear-gradient(45deg, rgba(253,105,37,0.95) 0 6px, rgba(200,70,15,0.95) 6px 12px);
+			}
+			table#objekty td.rotace_cell { text-align: center; }
 
 			/* Mobile: po výpočtu schovej sekundární sekce (celá sekce včetně nadpisu) */
 			.mobile-section-toggle { display: none; width: fit-content; }
@@ -1308,6 +1335,7 @@ header("Expires: 0");
 					<th rowspan="2">Název</th>
 					<th colspan="3">Rozměry objektu (mm)</th>
 					<th rowspan="2">Požadovaný počet instancí</th>
+					<th rowspan="2" title="Povolit otočení o 90° kolem Z, když se tak vejde víc kusů">Rotace<br />90°</th>
 					<th rowspan="2">Akce</th>
 					<th rowspan="2">Vypočtený<br />počet instancí</th>
 				</tr>
@@ -1356,6 +1384,10 @@ header("Expires: 0");
 					<label for="umistit_na_stred_v_ose_y">
 						<input id="umistit_na_stred_v_ose_y" type="checkbox" name="umistit_na_stred_v_ose_y" value="1" <?php if($umistit_na_stred_v_ose_y) {?>checked="checked" <?php }?>/>
 						<span class="hint">Umístit na střed v ose Y</span>
+					</label>
+					<label for="povolit_rotaci_vsem">
+						<input id="povolit_rotaci_vsem" type="checkbox" name="povolit_rotaci_vsem" value="1" <?php if($povolit_rotaci_vsem) {?>checked="checked" <?php }?>/>
+						<span class="hint">Povolit rotaci o 90° všem objektům (otočí, když se tak vejde víc kusů)</span>
 					</label>
 					<label for="rozprostrit_instance_po_cele_podlozce">
 						<input id="rozprostrit_instance_po_cele_podlozce" type="checkbox" name="rozprostrit_instance_po_cele_podlozce" value="1" <?php if($rozprostrit_instance_po_cele_podlozce) {?>checked="checked" <?php }?>/>
@@ -1433,6 +1465,19 @@ if ($text_nad_tabulkou) {
 		<div class="card" style="margin-top: 14px;" data-has-result="1">
 			<?php echo $text_nad_tabulkou;?>
 <?php
+	if (!empty($otocene_objekty)) {
+		// Otočené objekty: v sliceru je nutné kusy otočit o 90° kolem Z (název escapovat).
+		$otocene_popisy = [];
+		foreach ($otocene_objekty as $id_otoceneho) {
+			$nazev_otoceneho = $objekty[$id_otoceneho]["nazev"] ?? "";
+			$otocene_popisy[] = 'objekt '.($id_otoceneho + 1).($nazev_otoceneho !== "" ? ' ('.$nazev_otoceneho.')' : '');
+		}
+?>
+			<div id="otocene_objekty" style="margin-top: 6px; font-size: 13px;">
+				Otočeno o 90°: <strong><?php echo htmlspecialchars(implode(", ", $otocene_popisy), ENT_QUOTES, "UTF-8");?></strong> - v sliceru tyto kusy otoč o 90° kolem osy Z (ve vizualizaci a v tabulce pozic označené ↻).
+			</div>
+<?php
+	}
 	if (!empty($limit)) {
 		// Důvod limitu: proč se nevešly všechny požadované instance (text i název objektu escapovat).
 ?>
@@ -1563,6 +1608,7 @@ if (!empty($pos)) {
 					<th>Instance</th>
 					<th>X</th>
 					<th>Y</th>
+					<th title="Kus otočený o 90° kolem Z - v sliceru ho otoč">Otočeno</th>
 				</tr>
 <?php
 	foreach ($pos as $p => $podlozka) {
@@ -1582,6 +1628,7 @@ if (!empty($pos)) {
 				echo '<td>'.$i.'</td>';
 				echo '<td>'.format_cislo($ix, false, 2).'</td>';
 				echo '<td>'.format_cislo($iy, false, 2).'</td>';
+				echo '<td>'.(!empty($objekty_serazene[($o - 1)]["otoceno"]) ? '↻ 90°' : '').'</td>';
 				echo '</tr>';
 			}
 		}
@@ -1639,10 +1686,12 @@ if (!empty($pos)) {
 				$w_pct = ($vizX > 0 ? ($ox / $vizX) * 100 : 0);
 				$h_pct = ($vizY > 0 ? ($oy / $vizY) * 100 : 0);
 				$nazev_objektu = $objekt["nazev"] ?? "";
-				$title = 'Objekt '.$o.($nazev_objektu !== "" ? ' ('.$nazev_objektu.')' : '').' / instance '.$i."\n".
+				// Otočený objekt: rozměry x/y jsou už zaměněné (obdélník se kreslí otočený), navíc označení ↻.
+				$otoceny = !empty($objekt["otoceno"]);
+				$title = 'Objekt '.$o.($nazev_objektu !== "" ? ' ('.$nazev_objektu.')' : '').' / instance '.$i.($otoceny ? ' / otočeno o 90°' : '')."\n".
 					'Rozměr: '.format_cislo($ox, false, 2).'×'.format_cislo($oy, false, 2).'×'.format_cislo($oz, false, 2)." mm\n".
 					'Pozice (levý přední roh): '.format_cislo($ix_levy_dolni_roh, false, 2).' ; '.format_cislo($iy_levy_dolni_roh, false, 2).' mm';
-				echo '			  <div class="instance" data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'"'.($nazev_objektu !== "" ? ' data-nazev="'.htmlspecialchars($nazev_objektu, ENT_QUOTES, "UTF-8").'"' : '').' data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.'</small></div></div>';
+				echo '			  <div class="instance'.($otoceny ? ' otocene' : '').'"'.($otoceny ? ' data-otoceno="1"' : '').' data-seq="'.$seq.'" data-o="'.$o.'" data-i="'.$i.'"'.($nazev_objektu !== "" ? ' data-nazev="'.htmlspecialchars($nazev_objektu, ENT_QUOTES, "UTF-8").'"' : '').' data-ox="'.htmlspecialchars(format_cislo($ox, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oy="'.htmlspecialchars(format_cislo($oy, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-oz="'.htmlspecialchars(format_cislo($oz, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-left="'.htmlspecialchars(format_cislo($ix_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" data-bottom="'.htmlspecialchars(format_cislo($iy_levy_dolni_roh, false, 2, false, "."), ENT_QUOTES, "UTF-8").'" style="--x: '.number_format($left_pct, 4, ".", "").'; --y: '.number_format($bottom_pct, 4, ".", "").'; --w: '.number_format($w_pct, 4, ".", "").'; --h: '.number_format($h_pct, 4, ".", "").';" title="'.htmlspecialchars($title, ENT_QUOTES, "UTF-8").'"><div>'.$i.'<br /><small>O'.$o.($otoceny ? ' ↻' : '').'</small></div></div>';
 			}
 		}
 	}
