@@ -27,14 +27,7 @@ function ok(string $message): void {
 function runScenarioCli(array $get): array {
     // CLI i web poběží stejně (bez shell_exec), jen CLI má plný balík testů.
     $calc = new SequentialPrintCalculator(
-        [
-            "x" => 180, "y" => 180, "z" => 180,
-            "posun_zprava" => 1,
-            "Xr" => 12, "Xl" => 36.5,
-            "Yr" => 15.5, "Yl" => 15.5,
-            "vodici_tyce_Z" => 21,
-            "vodici_tyce_Y" => 17.4,
-        ],
+        SequentialPrintCalculator::VYCHOZI_TISKARNA,
         [
             "rozprostrit_instance_po_cele_podlozce" => true,
             "rozprostrit_instance_v_ose_x" => true,
@@ -178,6 +171,195 @@ if (PHP_SAPI === 'cli') {
     assertSame([0 => 2, 1 => 2, 2 => 1], $poctyObjektu, "počet instancí každého objektu");
     assertSame(2, $res["pozice"][count($res["pozice"]) - 1]["objekt"], "nejvyšší objekt (blok) se tiskne poslední");
     ok("Pozice s metadaty (objekt, pořadí, řada) odpovídají positions.");
+
+    // --- Kontrola kolizí (ROADMAP B1) ---
+
+    // Výchozí tiskárna: prázdné printer = VYCHOZI_TISKARNA (jediné místo s výchozími hodnotami).
+    $sVychozi = (new SequentialPrintCalculator([], []))->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]);
+    $sExplicitni = (new SequentialPrintCalculator(SequentialPrintCalculator::VYCHOZI_TISKARNA, SequentialPrintCalculator::VYCHOZI_NASTAVENI))
+        ->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]);
+    assertSame($sExplicitni["pozice"], $sVychozi["pozice"], "Prázdné printer/options = výchozí tiskárna a nastavení");
+    ok("Výchozí tiskárna a nastavení se berou z jednoho místa.");
+
+    // Regresní scénáře: oba směry tisku v X i Y, vysoké objekty nad vodicími tyčemi, mix rozměrů, „max“.
+    $tiskarny = [
+        "MINI (Xl>Xr, Yl=Yr)" => [SequentialPrintCalculator::VYCHOZI_TISKARNA, "zprava_doleva", "zepredu_dozadu"],
+        "Xl<Xr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Xl" => 12, "Xr" => 36.5]), "zleva_doprava", "zepredu_dozadu"],
+        "Yl<Yr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Yl" => 10, "Yr" => 30]), "zprava_doleva", "zepredu_dozadu"],
+        "Yl>Yr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Yl" => 30, "Yr" => 10]), "zprava_doleva", "zezadu_dopredu"],
+        "Xl<Xr, Yl>Yr" => [array_merge(SequentialPrintCalculator::VYCHOZI_TISKARNA, ["Xl" => 12, "Xr" => 36.5, "Yl" => 30, "Yr" => 10]), "zleva_doprava", "zezadu_dopredu"],
+    ];
+    $sadyObjektu = [
+        "vysoké nad tyčemi" => [["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]],
+        "vysoké max" => [["x" => 20, "y" => 30, "z" => 40, "instances" => ["d" => "max"]]],
+        "nízké max" => [["x" => 20, "y" => 20, "z" => 10, "instances" => ["d" => "max"]]],
+        "mix rozměrů" => [
+            ["x" => 30, "y" => 60, "z" => 5, "instances" => ["d" => 4]],
+            ["x" => 15, "y" => 15, "z" => 30, "instances" => ["d" => 6]],
+            ["x" => 40, "y" => 25, "z" => 50, "instances" => ["d" => 3]],
+        ],
+        "organizer (mix nízkých)" => [
+            ["x" => 49.79, "y" => 45.95, "z" => 10, "instances" => ["d" => 2]],
+            ["x" => 51.00, "y" => 46.97, "z" => 10, "instances" => ["d" => 2]],
+            ["x" => 80.55, "y" => 40.25, "z" => 11, "instances" => ["d" => 1]],
+        ],
+        "mix vysokých + max" => [
+            ["x" => 70.8, "y" => 66.7, "z" => 61.4, "instances" => ["d" => 4]],
+            ["x" => 51.7, "y" => 29.8, "z" => 38.6, "instances" => ["d" => "max"]],
+        ],
+    ];
+    $nastaveni = [
+        "vše zap." => ["rozprostrit_instance_po_cele_podlozce" => true, "rozprostrit_instance_v_ose_x" => true, "rozprostrit_instance_v_ose_y" => true],
+        "vše vyp." => ["rozprostrit_instance_po_cele_podlozce" => false, "rozprostrit_instance_v_ose_x" => false, "rozprostrit_instance_v_ose_y" => false],
+        "jen po celé podložce" => ["rozprostrit_instance_po_cele_podlozce" => true, "rozprostrit_instance_v_ose_x" => false, "rozprostrit_instance_v_ose_y" => false],
+    ];
+    $pocetScenaru = 0;
+    foreach ($tiskarny as $nazevTiskarny => [$tiskarna, $smerX, $smerY]) {
+        foreach ($sadyObjektu as $nazevSady => $sada) {
+            foreach ($nastaveni as $nazevNastaveni => $opt) {
+                $label = "{$nazevTiskarny} / {$nazevSady} / {$nazevNastaveni}";
+                $res = (new SequentialPrintCalculator($tiskarna, $opt))->calculate($sada);
+                assertSame($smerX, $res["printer"]["smer_X"], "{$label}: směr X");
+                assertSame($smerY, $res["printer"]["smer_Y"], "{$label}: směr Y");
+                assertTrue($res["pocet_instanci"] > 0, "{$label}: aspoň jedna instance");
+                assertSame(true, $res["kontrola_kolizi"]["ok"], "{$label}: kontrola_kolizi.ok");
+                // Nespoléhám jen na příznak z kalkulátoru: výstup znovu ověří samostatný checker.
+                $nezavisle = (new CollisionChecker($res["printer"]))->check(CollisionChecker::kusyZVysledku($res["pozice"], $res["objekty"]));
+                assertSame(true, $nezavisle["ok"], "{$label}: nezávislá kontrola výstupu");
+                assertSame($res["pocet_instanci"], $nezavisle["pocet_kusu"], "{$label}: počet kusů v kontrole");
+                $soucetR = 0;
+                foreach ($res["objekty"] as $o) $soucetR += $o["instances"]["r"];
+                assertSame($res["pocet_instanci"], $soucetR, "{$label}: součet instances[r] = počet instancí");
+                $pocetScenaru++;
+            }
+        }
+    }
+    ok("Regresní scénáře bez kolize ({$pocetScenaru}× tiskárna/objekty/nastavení).");
+
+    // Dřív kolizní případ (odhalený kontrolou): 3× 50×50×100 jen s rozprostřením po celé podložce.
+    // Hlava při tisku 3. kusu (od jeho levé hrany − Xl) zasahovala do 2. kusu o 24,5 mm; kus se teď posune v Y.
+    $res = (new SequentialPrintCalculator([], ["rozprostrit_instance_po_cele_podlozce" => true, "rozprostrit_instance_v_ose_x" => false, "rozprostrit_instance_v_ose_y" => false]))
+        ->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]);
+    assertSame(3, $res["pocet_instanci"], "Opravený případ: počet instancí zůstane");
+    assertSame(true, $res["kontrola_kolizi"]["ok"], "Opravený případ: bez kolize");
+    assertSame(true, $res["kontrola_kolizi"]["upraveno"], "Opravený případ: výpočet rozmístění upravil");
+    assertSame("hlava", $res["kontrola_kolizi"]["puvodni_konflikty"][0]["typ"], "Opravený případ: původní konflikt hlavy");
+    assertNear(24.5, $res["kontrola_kolizi"]["puvodni_konflikty"][0]["presah_mm"], 0.01, "Opravený případ: původní přesah");
+    ok("Kolizní rozmístění kalkulátor opraví (posun v ose Y) a nahlásí původní konflikt.");
+
+    // Checker sám: ručně sestavené rozmístění (MINI: tisk zprava doleva, zepředu dozadu).
+    $mini = (new SequentialPrintCalculator([], []))->calculate([["x" => 10, "y" => 10, "z" => 10]])["printer"];
+    $checker = new CollisionChecker($mini);
+    $kus = function (int $poradi, float $levy, float $predni, float $x, float $y, float $z): array {
+        return ["poradi" => $poradi, "objekt" => 0, "instance" => $poradi, "X" => $levy + $x / 2, "Y" => $predni + $y / 2, "x" => $x, "y" => $y, "z" => $z];
+    };
+
+    // a) hlava: 2. kus jen 5 mm vlevo od 1. (potřeba Xr = 12) => přesah 7 mm
+    $k = $checker->check([$kus(1, 129, 0, 50, 30, 10), $kus(2, 74, 0, 50, 30, 10)]);
+    assertSame(false, $k["ok"], "Checker: malá mezera v X je kolize");
+    assertSame("hlava", $k["konflikty"][0]["typ"], "Checker: typ hlava");
+    assertSame(2, $k["konflikty"][0]["poradi"], "Checker: kolidující kus");
+    assertSame(1, $k["konflikty"][0]["s_poradi"], "Checker: s dřívějším kusem");
+    assertNear(7.0, $k["konflikty"][0]["presah_mm"], 0.01, "Checker: přesah hlavy");
+
+    // b) stejné rozmístění s mezerou přesně Xr je OK
+    $k = $checker->check([$kus(1, 129, 0, 50, 30, 10), $kus(2, 67, 0, 50, 30, 10)]);
+    assertSame(true, $k["ok"], "Checker: mezera Xr je bez kolize");
+
+    // c) kolize s kusem, který není v předchozí řadě ani předchozí v pořadí (#3 do #1):
+    //    #3 je v 2. řadě, ale hlava (přední hrana − Yl) sahá do #1 v 1. řadě.
+    $k = $checker->check([
+        $kus(1, 129, 0, 50, 40, 10),
+        $kus(2, 10, 0, 20, 20, 10),
+        $kus(3, 100, 50, 50, 30, 10),
+    ]);
+    assertSame(false, $k["ok"], "Checker: kolize s ne-předchozím kusem");
+    assertSame([3, 1], [$k["konflikty"][0]["poradi"], $k["konflikty"][0]["s_poradi"]], "Checker: #3 koliduje s #1");
+    assertNear(5.5, $k["konflikty"][0]["presah_mm"], 0.01, "Checker: přesah 40 + 15,5 − 50");
+
+    // d) vodicí tyče: vysoký kus (z 50 > 21) a další kus ve stejné řadě; tyč (17,4 mm za tryskou) přejede přes 1. kus
+    $k = $checker->check([$kus(1, 129, 0, 50, 40, 50), $kus(2, 67, 0, 50, 40, 50)]);
+    assertSame(false, $k["ok"], "Checker: vodicí tyče přes vysoký kus");
+    assertSame("tyce", $k["konflikty"][0]["typ"], "Checker: typ tyce");
+    assertNear(22.6, $k["konflikty"][0]["presah_mm"], 0.01, "Checker: přesah tyčí 40 − 17,4");
+    // ...nízký 1. kus (z 20 <= 21) tyčím nevadí
+    $k = $checker->check([$kus(1, 129, 0, 50, 40, 20), $kus(2, 67, 0, 50, 40, 50)]);
+    assertSame(true, $k["ok"], "Checker: nízký kus pod tyčemi je OK");
+
+    // e) tisk zezadu dopředu (Yl > Yr): tyč je před tryskou, kontrola v opačném směru
+    $checkerZezadu = new CollisionChecker(array_merge($mini, ["Yl" => 30, "Yr" => 10, "smer_Y" => "zezadu_dopredu"]));
+    $k = $checkerZezadu->check([$kus(1, 129, 140, 50, 40, 50), $kus(2, 67, 140, 50, 40, 50)]);
+    assertSame("tyce", $k["konflikty"][0]["typ"] ?? null, "Checker zezadu: vodicí tyče přes vysoký kus");
+    $k = $checkerZezadu->check([$kus(1, 129, 140, 50, 40, 50), $kus(2, 67, 140 - 40 + 17.4 - 40, 50, 40, 50)]);
+    assertSame(true, $k["ok"], "Checker zezadu: kus posunutý dopředu o (40 − 17,4) je OK");
+
+    // f) kus mimo podložku
+    $k = $checker->check([$kus(1, 150, 0, 50, 30, 10)]);
+    assertSame("podlozka", $k["konflikty"][0]["typ"] ?? null, "Checker: kus mimo podložku");
+    ok("CollisionChecker najde kolizi hlavy, vodicích tyčí i přesah z podložky.");
+
+    // --- CLI bin/arrange.php ---
+    $spustCli = function (string $stdin, array $args = []): array {
+        $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'arrange.php');
+        foreach ($args as $a) $cmd .= ' ' . escapeshellarg($a);
+        $proc = proc_open($cmd, [0 => ["pipe", "r"], 1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
+        if (!is_resource($proc)) fail("CLI: nelze spustit {$cmd}");
+        fwrite($pipes[0], $stdin);
+        fclose($pipes[0]);
+        $out = stream_get_contents($pipes[1]);
+        $err = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $code = proc_close($proc);
+        return ["code" => $code, "out" => $out, "err" => $err, "json" => json_decode($out, true)];
+    };
+
+    $cli = $spustCli(json_encode(["objekty" => [
+        ["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3], "nazev" => "krabička"],
+        ["x" => 20, "y" => 20, "z" => 10, "instances" => ["d" => "max"]],
+    ]]));
+    assertSame(0, $cli["code"], "CLI: exit code 0 (stderr: {$cli["err"]})");
+    assertTrue(is_array($cli["json"]), "CLI: výstup je JSON");
+    foreach (["positions", "pozice", "pocet_instanci", "pocet_podlozek", "objekty", "printer", "kontrola_kolizi"] as $klic) {
+        assertTrue(array_key_exists($klic, $cli["json"]), "CLI: výstup obsahuje '{$klic}'");
+    }
+    assertSame(true, $cli["json"]["kontrola_kolizi"]["ok"], "CLI: kontrola_kolizi.ok");
+    assertSame(count($cli["json"]["pozice"]), $cli["json"]["pocet_instanci"], "CLI: počet pozic");
+    $sNazvem = array_values(array_filter($cli["json"]["pozice"], function ($p) { return $p["objekt"] === 0; }));
+    assertSame("krabička", $sNazvem[0]["nazev"] ?? null, "CLI: nazev objektu se propíše do pozice");
+    assertSame(179.0, (float)$cli["json"]["printer"]["x"], "CLI: výchozí tiskárna (180 − posun_zprava)");
+
+    // Stejný výsledek jako přímé volání kalkulátoru (= api.php).
+    $primo = SequentialPrintCalculator::vystupApi((new SequentialPrintCalculator([], []))->calculate([["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]));
+    $cli2 = $spustCli(json_encode(["objekty" => [["x" => 50, "y" => 50, "z" => 100, "instances" => ["d" => 3]]]]));
+    assertSame(json_decode(json_encode($primo), true), $cli2["json"], "CLI: stejný výstup jako vystupApi()");
+
+    // Vstup ze souboru (argument) + vlastní tiskárna a nastavení.
+    $tmp = tempnam(sys_get_temp_dir(), "arrange");
+    file_put_contents($tmp, json_encode([
+        "objekty" => [["x" => 30, "y" => 30, "z" => 30, "instances" => ["d" => "max"]]],
+        "printer" => ["Xl" => 12, "Xr" => 36.5],
+        "options" => ["rozprostrit_instance_v_ose_x" => false],
+    ]));
+    $cli3 = $spustCli("", [$tmp]);
+    unlink($tmp);
+    assertSame(0, $cli3["code"], "CLI soubor: exit code 0 (stderr: {$cli3["err"]})");
+    assertSame("zleva_doprava", $cli3["json"]["printer"]["smer_X"], "CLI soubor: vlastní tiskárna");
+
+    // Chybný vstup => exit 1 + {"error": ...}
+    foreach ([
+        "není JSON" => "tohle není json",
+        "chybí objekty" => '{"options":{}}',
+        "záporný rozměr" => '{"objekty":[{"x":-5,"y":10,"z":10}]}',
+        "větší než podložka" => '{"objekty":[{"x":500,"y":10,"z":10}]}',
+        "špatné instances" => '{"objekty":[{"x":10,"y":10,"z":10,"instances":{"d":"hodne"}}]}',
+        "printer není objekt" => '{"objekty":[{"x":10,"y":10,"z":10}],"printer":5}',
+    ] as $popis => $vstup) {
+        $cli = $spustCli($vstup);
+        assertSame(1, $cli["code"], "CLI chybný vstup ({$popis}): exit code 1");
+        assertTrue(isset($cli["json"]["error"]), "CLI chybný vstup ({$popis}): JSON s 'error'");
+    }
+    ok("CLI bin/arrange.php: výstup, exit kódy 0/1, vstup ze stdin i ze souboru.");
 
     ok("ALL OK");
     exit(0);

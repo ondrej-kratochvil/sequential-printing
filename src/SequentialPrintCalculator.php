@@ -7,10 +7,37 @@
  * Kompatibilita: PHP 7.4+ (bez Composeru).
  */
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'CollisionChecker.php';
+
 class SequentialPrintCalculator
 {
     public const MAXIMALNI_POCET_INSTANCI = 99;
     public const MAXIMALNI_POCET_ITERACI = 99;
+
+    /**
+     * Výchozí tiskárna (Prusa MINI) - jediné místo, odkud ji berou UI (index.php), API (api.php) i CLI (bin/arrange.php).
+     * Xl/Xr/Yl/Yr = vzdálenost trysky od levé/pravé/přední/zadní hrany hlavy (mm).
+     * posun_zprava = korekce pro Prusa MINI, kdy objekt umístěný zcela vpravo má deformovanou stěnu.
+     */
+    public const VYCHOZI_TISKARNA = [
+        'x' => 180,
+        'y' => 180,
+        'z' => 180,
+        'posun_zprava' => 1,
+        'Xr' => 12,
+        'Xl' => 36.5,
+        'Yr' => 15.5,
+        'Yl' => 15.5,
+        'vodici_tyce_Z' => 21,
+        'vodici_tyce_Y' => 17.4,
+    ];
+
+    /** Výchozí nastavení výpočtu (stejné jako UI bez parametrů). */
+    public const VYCHOZI_NASTAVENI = [
+        'rozprostrit_instance_po_cele_podlozce' => true,
+        'rozprostrit_instance_v_ose_x' => true,
+        'rozprostrit_instance_v_ose_y' => true,
+    ];
 
     /** @var array */
     private $printer;
@@ -86,6 +113,12 @@ class SequentialPrintCalculator
     /** @var array */
     private $kromeTechtoObjektu = [];
 
+    /** @var bool Posun řady počítat s hlavou přes celou šířku instance (bezpečnější varianta při kolizi). */
+    private $hlavaPresCelouSirku = false;
+
+    /** @var int Kolik kusů vynechala poslední oprava kolizí. */
+    private $pocetVynechanychKusu = 0;
+
     public function __construct(array $printer, array $options = [])
     {
         $this->printer = $this->normalizePrinter($printer);
@@ -93,10 +126,232 @@ class SequentialPrintCalculator
     }
 
     /**
+     * Výpočet rozložení + nezávislá kontrola kolizí (CollisionChecker).
+     *
+     * Když kontrola najde kolizi, zkouší bezpečnější varianty (bezpecnejsiVarianty()): nastavení
+     * uživatele, totéž s hlavou přes celou šířku kusu, pak postupně bez rozprostření v ose X,
+     * v X ani Y a po celé podložce. U každé varianty se kolidující kusy posunou ve směru tisku
+     * v ose Y o potřebnou vzdálenost; kus, který by se pak nevešel na podložku, se vynechá.
+     * Vezme se první varianta bez kolize, která udrží původní počet instancí bez vynechání,
+     * jinak varianta bez kolize s nejvíce instancemi.
+     *
      * @param array $objekty Input objekty ve tvaru jako z GET (včetně instances[d]).
-     * @return array Výsledek výpočtu (pozice, metadata, aktualizované objekty).
+     * @return array Výsledek výpočtu (pozice, metadata, aktualizované objekty, kontrola_kolizi).
      */
     public function calculate(array $objekty): array
+    {
+        $nastaveniUzivatele = $this->options;
+
+        $this->vypocitejRozlozeni($objekty);
+        $kontrola = $this->zkontrolujKolize();
+        if ($kontrola['ok']) {
+            $vysledek = $this->result($this->pos2);
+            $vysledek['kontrola_kolizi'] = $kontrola + ['upraveno' => false, 'postup' => []];
+            return $vysledek;
+        }
+
+        $puvodniVysledek = $this->result($this->pos2);
+        $puvodniPocet = $this->pocetInstanci1;
+        $puvodniKonflikty = $kontrola['konflikty'];
+        $nejlepsi = null;
+        $nejlepsiVynechano = 0;
+
+        foreach ($this->bezpecnejsiVarianty($nastaveniUzivatele) as $varianta) {
+            $this->options = $varianta['options'];
+            $this->hlavaPresCelouSirku = $varianta['hlava_pres_celou_sirku'];
+            $this->vypocitejRozlozeni($objekty);
+            $postup = $varianta['popis'];
+            $postup = array_merge($postup, $this->opravKolizePosunemNeboVynechanim());
+            $kontrola = $this->zkontrolujKolize();
+            if (!$kontrola['ok']) continue;
+
+            // Lepší = víc instancí; při shodě ta, která nemusela kusy vynechávat (jinak dřívější = bližší nastavení uživatele).
+            $lepsi = ($nejlepsi === null)
+                || ($this->pocetInstanci1 > $nejlepsi['pocet_instanci'])
+                || ($this->pocetInstanci1 === $nejlepsi['pocet_instanci'] && $this->pocetVynechanychKusu < $nejlepsiVynechano);
+            if ($lepsi) {
+                $nejlepsiVynechano = $this->pocetVynechanychKusu;
+                $nejlepsi = $this->result($this->pos2);
+                $nejlepsi['kontrola_kolizi'] = $kontrola + [
+                    'upraveno' => true,
+                    'postup' => $postup,
+                    'puvodni_konflikty' => $puvodniKonflikty,
+                ];
+            }
+            if ($this->pocetInstanci1 >= $puvodniPocet && $this->pocetVynechanychKusu === 0) break;
+        }
+        $this->options = $nastaveniUzivatele;
+        $this->hlavaPresCelouSirku = false;
+
+        if ($nejlepsi === null) {
+            // Pojistka: sem by se výpočet neměl dostat (oprava posunem/vynecháním vždy skončí bez kolize).
+            $puvodniVysledek['kontrola_kolizi'] = [
+                'ok' => false,
+                'pocet_kusu' => $puvodniPocet,
+                'konflikty' => $puvodniKonflikty,
+                'upraveno' => false,
+                'postup' => ['Kolizi se nepodařilo odstranit.'],
+            ];
+            return $puvodniVysledek;
+        }
+        return $nejlepsi;
+    }
+
+    /** Zkontroluje aktuální výsledek (pozice + rozměry objektů) nezávislou kontrolou kolizí. */
+    private function zkontrolujKolize(): array
+    {
+        $checker = new CollisionChecker($this->printer);
+        return $checker->check(CollisionChecker::kusyZVysledku($this->poziceDetail, $this->objekty));
+    }
+
+    /**
+     * Varianty pro opakovaný výpočet při kolizi (od nejbližší nastavení uživatele):
+     * 1) stejné nastavení, 2) stejné nastavení + hlava přes celou šířku instance,
+     * 3) navíc bez rozprostření v X, 4) bez rozprostření v X ani Y, 5) bez rozprostření po celé podložce.
+     *
+     * @return array [['options' => [...], 'hlava_pres_celou_sirku' => bool, 'popis' => string[]], ...]
+     */
+    private function bezpecnejsiVarianty(array $nastaveni): array
+    {
+        $hlava = 'Posun řad počítán s hlavou přes celou šířku kusu.';
+        $kroky = [
+            ['zmena' => [], 'hlava' => false, 'popis' => []],
+            ['zmena' => [], 'hlava' => true, 'popis' => [$hlava]],
+            ['zmena' => ['rozprostrit_instance_v_ose_x' => false], 'hlava' => true, 'popis' => [$hlava, 'Vypnuto rozprostření v ose X.']],
+            ['zmena' => ['rozprostrit_instance_v_ose_x' => false, 'rozprostrit_instance_v_ose_y' => false], 'hlava' => true, 'popis' => [$hlava, 'Vypnuto rozprostření v osách X a Y.']],
+            ['zmena' => ['rozprostrit_instance_v_ose_x' => false, 'rozprostrit_instance_v_ose_y' => false, 'rozprostrit_instance_po_cele_podlozce' => false], 'hlava' => true, 'popis' => [$hlava, 'Vypnuto rozprostření v osách X a Y i po celé podložce.']],
+        ];
+        $varianty = [];
+        $videne = [];
+        foreach ($kroky as $krok) {
+            $options = array_merge($nastaveni, $krok['zmena']);
+            $klic = json_encode([$options, $krok['hlava']]);
+            if (isset($videne[$klic])) continue;
+            $videne[$klic] = true;
+            $popis = $krok['popis'];
+            if ($options === $nastaveni) {
+                // Popis vypnutí rozprostření jen u skutečné změny proti nastavení uživatele.
+                $popis = $krok['hlava'] ? [$hlava] : [];
+            }
+            $varianty[] = ['options' => $options, 'hlava_pres_celou_sirku' => $krok['hlava'], 'popis' => $popis];
+        }
+        return $varianty;
+    }
+
+    /**
+     * Projde kusy v pořadí tisku a každý, který koliduje s dříve vytištěným kusem, posune
+     * ve směru tisku v ose Y o potřebnou vzdálenost (CollisionChecker::posunProVyreseni).
+     * Kus, který by po posunu přečníval z podložky, vynechá. Přepočítá pozice, počty i řady.
+     *
+     * @return array Popis provedených změn (pro výstup kontrola_kolizi.postup).
+     */
+    private function opravKolizePosunemNeboVynechanim(): array
+    {
+        $this->pocetVynechanychKusu = 0;
+        if (empty($this->pos2[1])) return [];
+
+        $checker = new CollisionChecker($this->printer);
+        $znamenko = ($this->printer['smer_Y'] === 'zepredu_dozadu') ? 1.0 : -1.0;
+        $ponechane = [];
+        $noveRady = [];
+        $postup = [];
+        $poradi = 0;
+
+        foreach ($this->pos2[1] as $yIdx => $rada) {
+            foreach ($rada as $inst) {
+                $poradi++;
+                $kus = [
+                    'poradi' => $poradi,
+                    'objekt' => $inst['o'] - 1,
+                    'instance' => $inst['i'],
+                    'X' => $inst['X'],
+                    'Y' => $inst['Y'],
+                    'x' => $inst['x'],
+                    'y' => $inst['y'],
+                    'z' => $inst['z'],
+                ];
+                $nazev = 'objekt ' . $inst['o'] . ', instance ' . $inst['i'];
+
+                $posunCelkem = 0.0;
+                $vyreseno = false;
+                for ($pokus = 0; $pokus < self::MAXIMALNI_POCET_ITERACI; $pokus++) {
+                    $posun = 0.0;
+                    foreach ($ponechane as $drivejsi) {
+                        $posun = max($posun, $checker->posunProVyreseni($kus, $drivejsi));
+                    }
+                    if ($posun <= CollisionChecker::TOLERANCE) {
+                        $vyreseno = true;
+                        break;
+                    }
+                    $kus['Y'] += $znamenko * $posun;
+                    $posunCelkem += $posun;
+                    if ($checker->presahMimoPodlozku($kus) > CollisionChecker::TOLERANCE) break;
+                }
+
+                if (!$vyreseno || $checker->presahMimoPodlozku($kus) > CollisionChecker::TOLERANCE) {
+                    $postup[] = 'Vynechán kus (' . $nazev . '): po posunu mimo kolizi by se nevešel na podložku.';
+                    $this->pocetVynechanychKusu++;
+                    continue;
+                }
+                if ($posunCelkem > 0.0) {
+                    $postup[] = 'Kus (' . $nazev . ') posunut v ose Y o ' . round($posunCelkem, 2) . ' mm.';
+                }
+                $inst['Y'] = $kus['Y'];
+                $noveRady[$yIdx][] = $inst;
+                $ponechane[] = $kus;
+            }
+        }
+
+        if (empty($postup)) return [];
+        $this->prestavVysledek($noveRady);
+        return $postup;
+    }
+
+    /**
+     * Po opravě kolizí znovu sestaví pos2 (řady i instance číslované od 1), pozice, počty a zbývající místo.
+     *
+     * @param array $noveRady [puvodniIndexRady => [instance, ...]] v pořadí tisku
+     */
+    private function prestavVysledek(array $noveRady): void
+    {
+        $this->datovaVetaPole = $this->poziceDetail = $this->XcountPole = [];
+        $zbyvaVOseX = [];
+        $pos = [];
+        $novyIdx = 0;
+        foreach ($noveRady as $staryIdx => $rada) {
+            $novyIdx++;
+            $x = 0;
+            foreach ($rada as $inst) {
+                $pos[$novyIdx][++$x] = $inst;
+            }
+            $this->XcountPole[$novyIdx] = $x;
+            if (isset($this->zbyvaVOseX[$staryIdx])) $zbyvaVOseX[$novyIdx] = $this->zbyvaVOseX[$staryIdx];
+        }
+        $this->pos2 = empty($pos) ? [] : [1 => $pos];
+        $this->zbyvaVOseX = $zbyvaVOseX;
+
+        $this->nastavPoctyInstanciZPozic();
+        $this->pocetInstanci1 = 0;
+        $nejvzdalenejsiHrana = 0.0;
+        foreach ($pos as $yIdx => $rada) {
+            foreach ($rada as $xIdx => $inst) {
+                $this->pocetInstanci1++;
+                $hrana = $this->hranaOdStartuY($inst);
+                if ($hrana > $nejvzdalenejsiHrana) $nejvzdalenejsiHrana = $hrana;
+                $this->pridejPozici($yIdx, $xIdx);
+            }
+        }
+        $this->pocetRad1 = count($pos);
+        $this->Xcount1 = isset($this->XcountPole[1]) ? $this->XcountPole[1] : 0;
+        $this->zbyvaVOseY = empty($pos) ? 0.0 : max(0.0, $this->printer['y'] - $nejvzdalenejsiHrana);
+    }
+
+    /**
+     * Vlastní výpočet rozložení (bez kontroly kolizí); výsledek zůstane ve stavu instance.
+     *
+     * @param array $objekty Input objekty ve tvaru jako z GET (včetně instances[d]).
+     */
+    private function vypocitejRozlozeni(array $objekty): void
     {
         $this->resetState();
 
@@ -104,7 +359,7 @@ class SequentialPrintCalculator
         $this->objektySerazene = $this->sortObjectsStableByZyx($this->objekty);
 
         if (empty($this->objektySerazene)) {
-            return $this->result([]);
+            return;
         }
 
         // Směr tisku je globální – odvoď ho podle profilu hlavy pro nejvyšší objekt v zadání.
@@ -202,10 +457,24 @@ class SequentialPrintCalculator
             }
         }
 
-        // Finální pos
-        $pos = $this->pos2;
+        // instances[r] se během iterací nenuluje (objekt, z něhož se v posledním průchodu nic nevešlo,
+        // by si nechal starý počet) - pro výstup ho přepočítej z výsledných pozic.
+        $this->nastavPoctyInstanciZPozic();
+    }
 
-        return $this->result($pos);
+    /** Nastaví instances[r] všech objektů podle výsledných pozic (pos2). */
+    private function nastavPoctyInstanciZPozic(): void
+    {
+        foreach ($this->objekty as $id => $_) {
+            $this->objekty[$id]['instances']['r'] = 0;
+        }
+        if (empty($this->pos2[1])) return;
+        foreach ($this->pos2[1] as $rada) {
+            foreach ($rada as $inst) {
+                $id = $inst['o'] - 1;
+                if (isset($this->objekty[$id])) $this->objekty[$id]['instances']['r']++;
+            }
+        }
     }
 
     private function resetState(): void
@@ -225,18 +494,20 @@ class SequentialPrintCalculator
 
     private function normalizePrinter(array $printer): array
     {
-        $x = isset($printer['x']) ? (float)$printer['x'] : 180.0;
-        $y = isset($printer['y']) ? (float)$printer['y'] : 180.0;
-        $z = isset($printer['z']) ? (float)$printer['z'] : 180.0;
-        $posunZprava = isset($printer['posun_zprava']) ? (float)$printer['posun_zprava'] : 1.0;
+        // Chybějící hodnoty doplní výchozí tiskárna (VYCHOZI_TISKARNA = Prusa MINI).
+        $printer = array_merge(self::VYCHOZI_TISKARNA, array_filter($printer, function ($v) { return $v !== null; }));
+        $x = (float)$printer['x'];
+        $y = (float)$printer['y'];
+        $z = (float)$printer['z'];
+        $posunZprava = (float)$printer['posun_zprava'];
 
-        // Head clearances (od trysky k hranám) – default z původního skriptu
-        $Xr = isset($printer['Xr']) ? (float)$printer['Xr'] : 12.0;
-        $Xl = isset($printer['Xl']) ? (float)$printer['Xl'] : 36.5;
-        $Yr = isset($printer['Yr']) ? (float)$printer['Yr'] : 15.5;
-        $Yl = isset($printer['Yl']) ? (float)$printer['Yl'] : 15.5;
-        $vodiciTyceZ = isset($printer['vodici_tyce_Z']) ? (float)$printer['vodici_tyce_Z'] : 21.0;
-        $vodiciTyceY = isset($printer['vodici_tyce_Y']) ? (float)$printer['vodici_tyce_Y'] : 17.4;
+        // Head clearances (od trysky k hranám)
+        $Xr = (float)$printer['Xr'];
+        $Xl = (float)$printer['Xl'];
+        $Yr = (float)$printer['Yr'];
+        $Yl = (float)$printer['Yl'];
+        $vodiciTyceZ = (float)$printer['vodici_tyce_Z'];
+        $vodiciTyceY = (float)$printer['vodici_tyce_Y'];
 
         // Zohlednění korekce zprava
         $xEff = $x - $posunZprava;
@@ -285,11 +556,11 @@ class SequentialPrintCalculator
 
     private function normalizeOptions(array $options): array
     {
-        return [
-            'rozprostrit_instance_po_cele_podlozce' => isset($options['rozprostrit_instance_po_cele_podlozce']) ? (bool)$options['rozprostrit_instance_po_cele_podlozce'] : true,
-            'rozprostrit_instance_v_ose_x' => isset($options['rozprostrit_instance_v_ose_x']) ? (bool)$options['rozprostrit_instance_v_ose_x'] : true,
-            'rozprostrit_instance_v_ose_y' => isset($options['rozprostrit_instance_v_ose_y']) ? (bool)$options['rozprostrit_instance_v_ose_y'] : true,
-        ];
+        $out = [];
+        foreach (self::VYCHOZI_NASTAVENI as $klic => $vychozi) {
+            $out[$klic] = isset($options[$klic]) ? (bool)$options[$klic] : $vychozi;
+        }
+        return $out;
     }
 
     private function sanitizeObjects(array $objekty): array
@@ -447,6 +718,13 @@ class SequentialPrintCalculator
                     );
                     if ($requiredPosunY > $this->posunY1) {
                         $delta = $requiredPosunY - $this->posunY1;
+                        // Když by posun řady vystrčil už umístěné instance z podložky, další instance se nevejde.
+                        foreach ($this->pos1[$p1][$y1] ?? [] as $umistena) {
+                            if (($this->hranaOdStartuY($umistena) + $delta) > $this->printer['y']) {
+                                $this->nastavZbyvaVOseY();
+                                break 3;
+                            }
+                        }
                         $this->posunY1 = $requiredPosunY;
                         // posuň už umístěné instance v aktuální řadě, aby zůstaly konzistentní
                         $this->shiftCurrentRowY($p1, $y1, $delta);
@@ -461,8 +739,9 @@ class SequentialPrintCalculator
                     $ix = ($this->printer['smer_X'] === 'zleva_doprava' ? ($this->printer['x'] - ($ox / 2.0)) : ($ox / 2.0));
                 }
 
-                // Y
-                if ($i1 > 1 && $x1 > 1
+                // Y: vodicí tyče nesmí při tisku další instance v řadě přejet přes předchozí vysokou instanci
+                // (platí i když je předchozí instance z jiného objektu).
+                if ($x1 > 1
                     && isset($this->pos1[$p1][$y1][($x1 - 1)])
                     && $this->pos1[$p1][$y1][($x1 - 1)]['z'] > $this->printer['vodici_tyce_Z']
                     && $this->pos1[$p1][$y1][($x1 - 1)]['y'] > $this->printer['vodici_tyce_Y']) {
@@ -472,7 +751,11 @@ class SequentialPrintCalculator
                 if ($this->printer['smer_Y'] === 'zepredu_dozadu') $iy = ($oy / 2.0) + $this->posunY1;
                 else $iy = $this->printer['y'] - ($oy / 2.0) - $this->posunY1;
 
-                if (($iy + ($oy / 2.0)) > $this->printer['y']) {
+                // Vzdálenost vzdálenější hrany instance od startu směru tisku v ose Y (vpředu, resp. vzadu).
+                // Pro tisk zepředu je to zadní hrana (iy + oy/2), pro tisk zezadu vzdálenost přední hrany od zadního okraje.
+                $hranaOdStartu = $this->posunY1 + $oy;
+
+                if ($hranaOdStartu > $this->printer['y']) {
                     $this->nastavZbyvaVOseY();
                     break 2;
                 }
@@ -499,8 +782,8 @@ class SequentialPrintCalculator
                 $this->zbyvaVOseX[$y1] = ($this->printer['x'] - ($this->posunX1 - $XMezeraMeziInstancemi));
                 if ($this->zbyvaVOseX[$y1] > $this->zbyvaVOseXMaximalne) $this->zbyvaVOseXMaximalne = $this->zbyvaVOseX[$y1];
 
-                if ($x1 === 1) $this->poziceHranyPrvnihoObjektuVRade = ($iy + ($oy / 2.0));
-                if ($this->poziceHranyNejvzdalenejsihoObjektu < ($iy + ($oy / 2.0))) $this->poziceHranyNejvzdalenejsihoObjektu = ($iy + ($oy / 2.0));
+                if ($x1 === 1) $this->poziceHranyPrvnihoObjektuVRade = $hranaOdStartu;
+                if ($this->poziceHranyNejvzdalenejsihoObjektu < $hranaOdStartu) $this->poziceHranyNejvzdalenejsihoObjektu = $hranaOdStartu;
                 $this->nastavZbyvaVOseY();
 
                 $this->pocetInstanciObjektu[$o1]++;
@@ -666,14 +949,20 @@ class SequentialPrintCalculator
         $smerY = $this->printer['smer_Y'];
         $bedY = (float)$this->printer['y'];
 
-        // Nozzle X je "kolizní" hrana v ose X.
         $leftX = $ix - ($ox / 2.0);
         $rightX = $ix + ($ox / 2.0);
-        // Upřesnění: při tisku "zprava" je kolizní strana vpravo.
-        $nozzleX = ($smerX === 'zleva_doprava') ? $leftX : $rightX;
-
-        $headXmin = $nozzleX - (float)$head['Xl'];
-        $headXmax = $nozzleX + (float)$head['Xr'];
+        if ($this->hlavaPresCelouSirku) {
+            // Přesný model (stejný jako CollisionChecker): tryska projede celou šířku instance,
+            // takže hlava v ose X zasáhne od levé hrany − Xl po pravou hranu + Xr.
+            $headXmin = $leftX - (float)$head['Xl'];
+            $headXmax = $rightX + (float)$head['Xr'];
+        } else {
+            // Původní model: tryska v "kolizním" rohu v ose X (při tisku "zprava" je kolizní strana vpravo).
+            // Bývá hustší, protože rozprostření v ose X pak kusy stejně rozestoupí; kolize ověří CollisionChecker.
+            $nozzleX = ($smerX === 'zleva_doprava') ? $leftX : $rightX;
+            $headXmin = $nozzleX - (float)$head['Xl'];
+            $headXmax = $nozzleX + (float)$head['Xr'];
+        }
 
         $minPosunY = $this->posunY1;
 
@@ -701,12 +990,20 @@ class SequentialPrintCalculator
         return $minPosunY;
     }
 
+    /** Vzdálenost vzdálenější hrany instance (v ose Y) od startu směru tisku. */
+    private function hranaOdStartuY(array $inst): float
+    {
+        if ($this->printer['smer_Y'] === 'zepredu_dozadu') return $inst['Y'] + ($inst['y'] / 2.0);
+        return $this->printer['y'] - ($inst['Y'] - ($inst['y'] / 2.0));
+    }
+
     private function shiftCurrentRowY(int $p1, int $y1, float $delta): void
     {
         if ($delta == 0.0) return;
         if (!isset($this->pos1[$p1][$y1]) || !is_array($this->pos1[$p1][$y1])) return;
         foreach ($this->pos1[$p1][$y1] as $xIdx => $inst) {
-            $this->pos1[$p1][$y1][$xIdx]['Y'] = $inst['Y'] + $delta;
+            // posunY1 roste ve směru tisku: zepředu dozadu = +Y, zezadu dopředu = −Y
+            $this->pos1[$p1][$y1][$xIdx]['Y'] = ($this->printer['smer_Y'] === 'zepredu_dozadu') ? ($inst['Y'] + $delta) : ($inst['Y'] - $delta);
         }
     }
 
@@ -734,6 +1031,24 @@ class SequentialPrintCalculator
         }
         if ($best === null) $best = $steps[0];
         return $best;
+    }
+
+    /**
+     * Veřejný JSON kontrakt výsledku - stejné klíče vrací api.php i bin/arrange.php.
+     *
+     * @param array $vysledek Výstup calculate()
+     */
+    public static function vystupApi(array $vysledek): array
+    {
+        return [
+            'positions' => $vysledek['datova_veta_pole'],
+            'pozice' => $vysledek['pozice'],
+            'pocet_instanci' => $vysledek['pocet_instanci'],
+            'pocet_podlozek' => $vysledek['pocet_podlozek'],
+            'objekty' => $vysledek['objekty'],
+            'printer' => $vysledek['printer'],
+            'kontrola_kolizi' => isset($vysledek['kontrola_kolizi']) ? $vysledek['kontrola_kolizi'] : null,
+        ];
     }
 
     private function result(array $pos): array

@@ -38,17 +38,20 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
 
 ### B1. Zpřesnění kolizí hlavy a tyčí (regresní sada)
 - **Regresní testy na reálné scénáře** *(ANO – 8.a, 13.a, 13.b)*:
-  - přidat konkrétní případy (včetně těch odhalených vizualizací),
-  - testy na různé směry tisku `smer_X/smer_Y`,
-  - testy na vodící tyče (zobrazování a posuny).
+  - ~~přidat konkrétní případy (včetně těch odhalených vizualizací)~~ hotovo: `tests/run.php` (organizer, mix rozměrů, vysoké objekty, „max“, dřív kolizní 3× 50×50×100),
+  - ~~testy na různé směry tisku `smer_X/smer_Y`~~ hotovo: tiskárny s Xl<Xr i Xl>Xr, Yl<Yr i Yl>Yr, u každého scénáře `kontrola_kolizi.ok === true`,
+  - ~~testy na vodící tyče (posuny)~~ hotovo (výpočet i `CollisionChecker`); zbývá: test zobrazování tyčí ve vizualizaci (JS).
 - **„Bez kolize“ jako garantovaný výsledek** *(ANO – 2.a = NE pro viz. kolizní režim)*:
-  - cílem je, aby vizualizace hlavy byla jen kontrolní nástroj,
-  - algoritmus má zajistit, že kolize nevznikne (a když hrozí, musí změnit rozmístění nebo snížit počet).
+  - ~~cílem je, aby vizualizace hlavy byla jen kontrolní nástroj~~ hotovo: nezávislá kontrola `src/CollisionChecker.php`, výsledek v `kontrola_kolizi` (UI, JSON, API, CLI),
+  - ~~algoritmus má zajistit, že kolize nevznikne (a když hrozí, musí změnit rozmístění nebo snížit počet)~~ hotovo: při kolizi bezpečnější varianty výpočtu, posun kusu v ose Y, v krajním případě vynechání kusu (postup v README).
 
 ### B2. Více průchodů (optimalizace)
 - **Rotace o 90° jako druhý průchod** *(ANO – 6.a)*:
   - povolit per objekt (zap/vyp),
   - vybrat nejlepší výsledek (max počet instancí, sekundárně preference rozprostření).
+
+### B3. CLI
+- ~~**Výpočet z příkazové řádky** `bin/arrange.php` (JSON ze stdin nebo ze souboru, stejný výstup jako API, exit kódy 0/1/2)~~ hotovo.
 
 ## Milník C – API (bez DB jako default, DB jen pro auth pokud zapnuto)
 

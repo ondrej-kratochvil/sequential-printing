@@ -52,44 +52,12 @@ if (empty($objekty)) {
     $jsonError(400, "Chybí pole 'objekty'.");
 }
 
-// Výchozí tiskárna odpovídá současnému index.php
-$printer = [
-    "x" => 180,
-    "y" => 180,
-    "z" => 180,
-    "posun_zprava" => 1,
-    "Xr" => 12,
-    "Xl" => 36.5,
-    "Yr" => 15.5,
-    "Yl" => 15.5,
-    "vodici_tyce_Z" => 21,
-    "vodici_tyce_Y" => 17.4,
-];
-if (isset($input["printer"]) && is_array($input["printer"])) {
-    $printer = array_merge($printer, $input["printer"]);
-}
-
-$options = [
-    "rozprostrit_instance_po_cele_podlozce" => true,
-    "rozprostrit_instance_v_ose_x" => true,
-    "rozprostrit_instance_v_ose_y" => true,
-];
-if (isset($input["options"]) && is_array($input["options"])) {
-    $options = array_merge($options, $input["options"]);
-}
+// Chybějící hodnoty tiskárny a nastavení doplní kalkulátor z VYCHOZI_TISKARNA / VYCHOZI_NASTAVENI
+// (stejné výchozí hodnoty jako UI a CLI).
+$printer = (isset($input["printer"]) && is_array($input["printer"])) ? $input["printer"] : [];
+$options = (isset($input["options"]) && is_array($input["options"])) ? $input["options"] : [];
 
 $calculator = new SequentialPrintCalculator($printer, $options);
 $vysledek = $calculator->calculate($objekty);
 
-echo json_encode(
-    [
-        "positions" => $vysledek["datova_veta_pole"],
-        "pozice" => $vysledek["pozice"],
-        "pocet_instanci" => $vysledek["pocet_instanci"],
-        "pocet_podlozek" => $vysledek["pocet_podlozek"],
-        "objekty" => $vysledek["objekty"],
-        "printer" => $vysledek["printer"],
-    ],
-    JSON_UNESCAPED_UNICODE
-);
-
+echo json_encode(SequentialPrintCalculator::vystupApi($vysledek), JSON_UNESCAPED_UNICODE);
