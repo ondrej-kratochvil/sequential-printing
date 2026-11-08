@@ -337,7 +337,7 @@ header("Expires: 0");
 /* Vypsání HTML */
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="cs">
   <head>
     <title>Sekvenční tisk</title>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -1326,7 +1326,20 @@ header("Expires: 0");
 				font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
 			}
 			a { color: var(--accent); }
-			.container { max-width: 1200px; margin: 0 auto; padding: 18px; }
+			.container { max-width: none; margin: 0 auto; padding: 18px; }
+			/* Siroky monitor: vizualizace vpravo vedle formulare, pri posouvani zustava videt (Ondra 8. 11. 2026). */
+			@media (min-width: 1100px) {
+				.app-grid:has(> .app-right) { display: grid; grid-template-columns: minmax(540px, 1fr) auto; gap: 14px; align-items: start; }
+				.app-right { position: sticky; top: 12px; }
+				/* karta podle podlozky: texty (popis, detail instance pri najeti) se zalomi, sloupec nerozsiri */
+				.app-right .card:not(.is-fullscreen) { width: min-content; }
+				.app-grid:has(> .app-right) .layout { grid-template-columns: 1fr; }
+				/* podlozka co nejvetsi, ale cela na vysku okna */
+				.app-right .card:not(.is-fullscreen) #tiskova_podlozka { max-width: none; width: min(calc((100vh - 210px) * var(--bed-x) / var(--bed-y)), calc(100vw - 640px)); margin: 0; }
+				/* pravy sloupec jen tak siroky jako podlozka (bez prazdneho mista po stranach), zbytek dostane formular */
+			}
+			.app-right { margin-top: 14px; }
+			@media (min-width: 1100px) { .app-right { margin-top: 0; } }
 			.header {
 				display: flex;
 				gap: 12px;
@@ -1653,6 +1666,9 @@ header("Expires: 0");
 				<h1>Sekvenční tisk</h1>
 				<div class="sub">Výpočet rozložení instancí pro sekvenční tisk</div>
 			</div>
+<?php $html_vizualizace = ''; // vizualizace vedle formulare: plni se v bloku vysledku, vypisuje v .app-right ?>
+		<div class="app-grid">
+		<div class="app-left">
 
 		<button id="toggle_section_form" class="ghost small mobile-section-toggle" type="button" data-target="#section_form" data-label="formulář"><?php echo ikona("eye");?><span class="lbl">Zobrazit formulář</span></button>
 		<div id="section_form" class="mobile-section">
@@ -2024,6 +2040,7 @@ if (!empty($pos)) {
 			</div>
 
 		<div class="bed-wrap">
+<?php ob_start(); ?>
 			<div class="card">
 				<div class="toolbar" style="margin: 0 0 8px;">
 					<h2 style="margin:0; flex:1;">Vizualizace</h2>
@@ -2094,6 +2111,7 @@ if (!empty($pos)) {
 				</div>
 				<div id="instance_details" style="margin-top: 10px; color: var(--muted); font-size: 13px; white-space: pre-wrap;"></div>
 			</div>
+<?php $html_vizualizace = ob_get_clean(); // vizualizace se vypise v prave casti (vedle formulare) ?>
 
 			<button id="toggle_section_json" class="ghost small mobile-section-toggle" type="button" data-target="#section_json" data-label="JSON"><?php echo ikona("eye");?><span class="lbl">Zobrazit JSON</span></button>
 			<div id="section_json" class="card mobile-section">
@@ -2109,6 +2127,13 @@ if (!empty($pos)) {
 <?php
 }
 ?>
+		</div><!-- /app-left -->
+<?php if ($html_vizualizace !== '') {?>
+		<div class="app-right">
+<?php echo $html_vizualizace;?>
+		</div>
+<?php }?>
+		</div><!-- /app-grid -->
 	</div>
   </body>
 </html>
