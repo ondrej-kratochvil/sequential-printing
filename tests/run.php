@@ -944,6 +944,9 @@ if (PHP_SAPI === 'cli') {
     // --- Import a export 3MF/STL (UI, API v1, CLI, volitelně PrusaSlicer) ---
     require __DIR__ . DIRECTORY_SEPARATOR . 'model3mf.php';
 
+    // --- Účty a projekty (Milník D2): bez DB i s DB (TEST_DB_DSN) ---
+    require __DIR__ . DIRECTORY_SEPARATOR . 'ucty.php';
+
     // --- API v1 s DB (jen lokálně, když je nastavené TEST_DB_DSN): klíč, X-RateLimit-*, 429 s Retry-After, správa klíčů ---
     $dsn = getenv("TEST_DB_DSN");
     if ($dsn === false || $dsn === "") {

@@ -4,18 +4,24 @@
 //   php bin/create_user.php user@example.com 'heslo' [--admin]
 
 require_once __DIR__ . '/../src/Db.php';
+require_once __DIR__ . '/../src/Ucty.php';
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
 }
 
-$email = $argv[1] ?? null;
+$email = Ucty::normalizujEmail($argv[1] ?? ''); // stejně jako registrace a přihlášení v UI
 $password = $argv[2] ?? null;
 $isAdmin = in_array('--admin', $argv, true);
 
 if (!$email || !$password) {
     fwrite(STDERR, "Usage: php bin/create_user.php <email> <password> [--admin]\n");
+    exit(1);
+}
+
+if (($chyba = Ucty::overEmail($email)) !== null || ($chyba = Ucty::overHeslo($password, $password)) !== null) {
+    fwrite(STDERR, $chyba . "\n");
     exit(1);
 }
 
