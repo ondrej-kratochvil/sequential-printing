@@ -85,9 +85,13 @@ Tento dokument shrnuje plánované úpravy aplikace podle aktuálně odsouhlasen
   - bez potřeby externích CLI skriptů.
 
 ### D2. Uživatelské účty + projekty
-- **Login/registrace + uložení projektů** *(ANO – 10.a, 10.b)*:
-  - uložit vstupy (projekty),
-  - verze projektu / historie.
+- ~~**Login/registrace + uložení projektů** *(ANO – 10.a, 10.b)*: uložit vstupy (projekty)~~ hotovo: `ucet.php` (registrace, přihlášení, odhlášení; session s HttpOnly/SameSite=Lax/Secure, `session_regenerate_id`, CSRF u všech POST, omezení pokusů v tabulce `login_attempts`, `REGISTRACE=0`), projekty v tabulce `projects` (Uložit projekt / Uložit změny / Uložit jako nový z lišty formuláře, Moje projekty: otevřít, přejmenovat, smazat s potvrzením), `api/v1/projects.php`, migrace `db/migrace/001_ucty_projekty.sql` + `bin/migrace.php`, `bin/admin.php`. Bez DB se účty v UI nezobrazí.
+- Zbývá:
+  - verze projektu / historie (zatím se projekt jen přepisuje),
+  - reset zapomenutého hesla: bez odesílání e-mailů ho nejde udělat bezpečně samoobslužně; zatím admin (nové heslo přes SQL / CLI), později e-mail s jednorázovým odkazem (vyžaduje SMTP),
+  - ověření e-mailu při registraci (také vyžaduje e-mail),
+  - změna hesla a smazání účtu přihlášeným uživatelem,
+  - uložit do projektu i nahraný model 3MF/STL (sítě).
 
 ### D0. Předvolby tiskáren bez DB
 - ~~**`config/tiskarny.json`**: předvolby se zdrojem každé hodnoty, výchozí MINI jako jediný zdroj výchozí tiskárny~~ hotovo: výběr v UI, GET `tiskarna`, sdílený odkaz, export/import, CLI/API `tiskarna` nebo `printer: "<id>"`, neznámá předvolba = chyba.

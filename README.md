@@ -14,6 +14,8 @@ Testy nepotřebují DB (API v1 běží s `API_REQUIRE_KEY=0`). Testy 3MF potřeb
 TEST_DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_test;charset=utf8mb4' TEST_DB_USER=root TEST_DB_PASS= php tests/run.php
 ```
 
+Účty a projekty (`tests/ucty.php`) se bez DB testují jen ve validaci a v tom, že UI bez `DB_DSN` účty neukazuje; s `TEST_DB_DSN` test na testovací DB nejdřív spustí migrace (`bin/migrace.php`, idempotentní), pak ověří registraci, přihlášení, omezení pokusů, projekty a `api/v1/projects.php` a založené uživatele i pokusy smaže.
+
 ## Nastavení v UI (GET parametry)
 
 - **Počet instancí**: lze zadat číslem, nebo použít `max` (např. `objekty[0][instances][d]=max`).
@@ -34,6 +36,7 @@ TEST_DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_test;charset=u
 - Každé tlačítko má vlevo od textu čárovou ikonu (inline SVG sprite `<symbol id="i-…">` na začátku `<body>`, vkládá ji PHP funkce `ikona()`; barva podle textu tlačítka, `aria-hidden`). Tvary ikon jsou z [Lucide](https://lucide.dev) (licence ISC), žádná externí knihovna ani CDN se nenačítá.
 - Jen ikonu mají akce v řádcích tabulky objektů (nahoru, dolů, duplikovat, smazat) a šipky předchozí/další instance u tiskové hlavy; popis je v `title` a `aria-label`.
 - Hlavní lišta formuláře ukazuje jen Vypočítat, Přidat řádek, Nastavení a Import 3MF/STL. Méně používané akce jsou v rozbalovací nabídce **Další funkce** (`<details>`): Příklad, Uložit do prohlížeče, Načíst z prohlížeče, Smazat uložené, Export a Import vstupu (JSON), Kopírovat odkaz. Nabídka jde ovládat klávesnicí, zavře ji Escape, klik mimo i volba položky.
+- **S DB** (viz [Účty, projekty a DB](#účty-projekty-a-db)): v hlavičce vpravo Přihlásit / Registrovat, po přihlášení e-mail, Moje projekty a Odhlásit. Přihlášený má v hlavní liště navíc **Uložit projekt** a v Další funkce **Moje projekty**; nepřihlášený v Další funkce „Uložit projekt (po přihlášení)“. Bez DB se nic z toho nezobrazí.
 
 ## Import a export 3MF
 
@@ -188,6 +191,7 @@ Stabilní kontrakt jsou fyzické soubory v `api/v1/`, takže fungují i bez mod_
 | `api/v1/export.php` | GET, POST | ano* | výpočet + 3MF ke stažení (JSON jako `arrange`, nebo multipart s modelem), `?podlozka=N` |
 | `api/v1/printers.php` | GET | **bez klíče** | předvolby tiskáren (`id`, `nazev`, `vychozi`, `parametry`, `plocha`, `zdroje`); `?id=<id>` jedna předvolba |
 | `api/v1/keys.php` | GET, POST, DELETE | vždy | správa API klíčů (seznam, nový klíč, `?id=` zneplatnění) |
+| `api/v1/projects.php` | GET, POST, PUT, DELETE | vždy | projekty vlastníka klíče (seznam, `?id=` detail s daty, nový, přejmenování / přepsání dat, smazání) |
 | `api/v1/` (`index.php`) | GET | bez klíče | verze a seznam endpointů (pole `klic`: `vyzaduje`, `bez_klice`, `vzdy`) |
 
 \* klíč se vyžaduje, pokud ho konfigurace vyžaduje (výchozí stav; vypnutí `API_REQUIRE_KEY=0` jen pro lokální demo). „vždy“ = platný klíč i při `API_REQUIRE_KEY=0`.
@@ -227,10 +231,11 @@ API v1 vrací každou chybu stejně, s odpovídajícím HTTP statusem:
 | 400 | `neplatny_json` | POST tělo není JSON objekt | `json_chyba` |
 | 400 | `neplatny_vstup` | chyby vstupu (všechny najednou) | `chyby`: `[{pole, zprava}]`, pole jako `objekty[1].instances.d` (index od 0) |
 | 401 | `chybi_klic`, `neplatny_klic`, `zneplatneny_klic` | chybí / neznámý / zneplatněný API klíč | |
-| 403 | `vyzaduje_klic` | správa klíčů bez platného klíče | |
+| 403 | `vyzaduje_klic` | správa klíčů nebo projekty bez platného klíče | |
 | 404 | `neznama_tiskarna` | neznámá předvolba (`tiskarna`, `printer`, `printers.php?id=`) | `tiskarna`, `dostupne` |
 | 404 | `neznamy_endpoint` | neznámá cesta pod `/api/v1/` (jen s `.htaccess`) | `endpoint`, `dostupne` |
 | 404 | `klic_nenalezen` | zneplatnění neexistujícího nebo už zneplatněného klíče | `id` |
+| 404 | `projekt_nenalezen` | projekt neexistuje nebo patří jinému uživateli | `id` |
 | 405 | `nepovolena_metoda` | metoda, kterou endpoint nepodporuje (+ hlavička `Allow`) | `metoda`, `povolene` |
 | 410 | `odstraneno` | odstraněná stará adresa `api.php`, `api_keys.php` (+ hlavička `Link` na náhradu) | `odstraneno`, `nahrada` |
 | 429 | `prekrocen_limit` | překročen limit klíče (+ hlavička `Retry-After`) | `retry_after`, `limit` |
@@ -372,8 +377,63 @@ curl -X DELETE 'http://localhost/api/v1/keys.php?id=123' \
   -H 'Authorization: Bearer <api_key>'
 ```
 
-## DB schéma (MariaDB)
+### Projekty přes API (JSON)
 
-SQL je v `db/schema.sql` (uživatelé, API klíče, tiskárny + schody profilu hlavy).
+`data` mají stejný tvar jako export vstupu z UI (`{"version": 1, "objekty": [...], "nastaveni": {...}}`), před uložením se očistí stejně jako z UI (jen známé klíče, nejvýš 200 objektů, 256 kB).
 
-Volitelný seed je v `db/seed.sql`.
+```bash
+curl 'http://localhost/api/v1/projects.php' -H 'Authorization: Bearer <api_key>'
+curl -X POST 'http://localhost/api/v1/projects.php' -H 'Authorization: Bearer <api_key>' -H 'Content-Type: application/json' \
+  -d '{"name":"Krabičky","data":{"objekty":[{"x":50,"y":50,"z":100,"instances":{"d":3}}],"nastaveni":{"vice_podlozek":1}}}'
+curl -X PUT 'http://localhost/api/v1/projects.php?id=12' -H 'Authorization: Bearer <api_key>' -H 'Content-Type: application/json' -d '{"name":"Nový název"}'
+curl -X DELETE 'http://localhost/api/v1/projects.php?id=12' -H 'Authorization: Bearer <api_key>'
+```
+
+## Účty, projekty a DB
+
+**Aplikace funguje i bez DB.** Bez `DB_DSN` se v UI účty vůbec neukážou (žádné přihlášení, žádná session ani cookie), `ucet.php` jen srozumitelně řekne, že účty nejsou zapnuté, a výpočet, import/export 3MF, sdílený odkaz, ukládání do prohlížeče i předvolby tiskáren ze souboru jedou dál. Když je DB nastavená, ale nedostupná, `ucet.php` vrátí hlášku 503 a výpočet funguje dál bez účtů.
+
+### Nastavení DB
+
+1. Databáze MariaDB (lokálně 10.5, produkce 11.x), `utf8mb4`:
+
+```sql
+CREATE DATABASE sekvencni_tisk CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+2. Schéma: nová instalace `mysql sekvencni_tisk < db/schema.sql` (obsahuje i tabulky z migrací). Existující DB: `php bin/migrace.php` (spustí `db/migrace/*.sql` popořadě; migrace jsou idempotentní, `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`, takže jde pouštět opakovaně i po `schema.sql`). `php bin/migrace.php --vypis` jen vypíše soubory.
+3. Env proměnné pro PHP (web i CLI):
+   - `DB_DSN`, např. `mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk;charset=utf8mb4`
+   - `DB_USER`, `DB_PASS`
+   - volitelně `REGISTRACE=0` = registrace v UI vypnutá (účty zakládá jen admin přes CLI).
+
+   Apache (vhost nebo `.htaccess`, potřebuje `mod_env`):
+
+```apache
+SetEnv DB_DSN "mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk;charset=utf8mb4"
+SetEnv DB_USER "sekvencni_tisk"
+SetEnv DB_PASS "…"
+```
+
+   Lokální server pro vývoj: `DB_DSN='mysql:host=127.0.0.1;port=3307;dbname=sekvencni_tisk_dev;charset=utf8mb4' DB_USER=root php -S 127.0.0.1:8094`.
+4. Admin: `php bin/create_user.php jan@example.cz 'heslo' --admin` založí nového admina, `php bin/admin.php jan@example.cz` udělá admina z existujícího účtu (`--odebrat` roli odebere, `--vypis` vypíše adminy). Ručně v SQL: `UPDATE users SET is_admin = 1 WHERE email = 'jan@example.cz';` (e-maily jsou uložené malými písmeny).
+
+### Tabulky
+
+`db/schema.sql`: `users`, `api_keys`, `api_key_rate_limits`, `printers` + `printer_head_steps` (tiskárny v DB, zatím je aplikace nepoužívá), z migrace `001_ucty_projekty.sql` `login_attempts` (pokusy o přihlášení a registraci) a `projects` (projekty). Volitelný seed je v `db/seed.sql`.
+
+### Přihlášení a registrace (`ucet.php`)
+
+- Registrace: e-mail (`FILTER_VALIDATE_EMAIL`, uloží se malými písmeny) a heslo 8 až 72 bajtů dvakrát. Heslo jen jako `password_hash` (`PASSWORD_DEFAULT`, při přihlášení `password_needs_rehash`). Po registraci je uživatel rovnou přihlášený. E-mail se neověřuje a aplikace žádné e-maily neposílá (zapomenuté heslo zatím nastaví admin, viz ROADMAP).
+- Přihlášení: chybná hláška neprozradí, jestli účet existuje (neznámý e-mail se ověří proti fiktivnímu hashi, aby odpověď trvala stejně). Po přihlášení `session_regenerate_id(true)` a nový CSRF token, návrat na stejný výpočet (`zpet` smí být jen `index.php?…`, žádná cizí adresa).
+- Omezení pokusů (`login_attempts`, čas podle DB): 5 neúspěšných přihlášení na e-mail nebo 20 na IP za 15 minut = blokace do konce okna (HTTP 429 a hláška „zkus to za N min“); úspěšné přihlášení vynuluje neúspěchy daného e-mailu. Registrace nejvýš 10 z jedné IP za hodinu. IP = `REMOTE_ADDR` (za reverzní proxy by to byla adresa proxy). Záznamy starší než den se mažou.
+- Session: cookie `sekvencni_tisk`, `HttpOnly`, `SameSite=Lax`, `Secure` na HTTPS, path = složka aplikace, `session.use_strict_mode`. `index.php` session jen obnoví, když už cookie existuje (anonymní návštěvník cookie nedostane).
+- CSRF: každý POST formulář má skryté pole `csrf`, ukládání projektu z `index.php` posílá token v hlavičce `X-CSRF-Token`; porovnání `hash_equals`. Odhlášení je POST.
+- Stránky účtu posílají `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` a `Cache-Control: no-store`.
+
+### Projekty
+
+- **Uložit projekt** (lišta formuláře, jen přihlášený): uloží aktuální vstup formuláře ve stejném tvaru jako Export vstupu (JSON) a sdílený odkaz, pod názvem (výchozí = otevřený projekt, jinak název prvního objektu nebo „Projekt <datum>“). U otevřeného projektu **Uložit změny** (přepíše) nebo **Uložit jako nový**. Otevřený projekt je vidět u formuláře („Projekt: …“) a drží se v URL (`projekt=<id>`), takže přepočet ani obnovení stránky o něj nepřijde.
+- **Moje projekty** (`ucet.php?stranka=projekty`): seznam (název, počet objektů, kdy upraveno), Otevřít (přesměruje na `index.php` s parametry formuláře, výpočet hned proběhne), Přejmenovat, Smazat (s potvrzením „Opravdu smazat?“, funguje i bez JS).
+- Nahraný model 3MF/STL (sítě) se do projektu neukládá, jen rozměry a názvy objektů; pro export se sítěmi je potřeba model nahrát znovu.
+- Cizí projekt se chová jako neexistující (UI, API). Data se před uložením očistí (`Projekty::overData`: známé klíče, nejvýš 200 objektů, 256 kB).

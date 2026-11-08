@@ -5,6 +5,9 @@ define("MAXIMALNI_POCET_ITERACI", 99);
 require_once __DIR__ . "/src/SequentialPrintCalculator.php";
 require_once __DIR__ . "/src/Api.php";
 require_once __DIR__ . "/src/UlozisteModelu.php";
+require_once __DIR__ . "/src/Relace.php";
+require_once __DIR__ . "/src/Projekty.php";
+require_once __DIR__ . "/src/Ucty.php";
 
 /* Import modelu 3MF/STL z UI (POST multipart, pole soubor): soubor se uloží pod náhodný token (UlozisteModelu),
    odpověď JSON = objekty pro formulář + token; chyby ve formátu API v1. Bez DB a bez API klíče (UI funguje bez DB). */
@@ -327,6 +330,27 @@ if (isset($_GET["format"]) && $_GET["format"] === "3mf") {
 		Api::odeslatSoubor($export["obsah"], $export["typ"], $export["nazev"], ["Cache-Control" => "no-store"]);
 	});
 }
+
+/* Účty (jen s DB): session se obnoví, jen když prohlížeč už cookie má (anonymní návštěva bez cookie i bez DB).
+   Bez DB_DSN se v UI nic z účtů nezobrazí a vše ostatní funguje jako dřív. */
+$ucty_zapnute = Relace::dbZapnuta();
+Relace::startPokudExistuje();
+$uzivatel = Relace::uzivatel();
+// Jednorázová zpráva z účtu (např. po registraci) se ukáže u formuláře.
+$zprava_uctu = $uzivatel ? Relace::vezmiZpravu() : null;
+// Otevřený projekt (ucet.php?akce=otevrit přesměruje sem s parametry formuláře a projekt=id): jen vlastní projekt.
+$aktualni_projekt = null;
+if ($uzivatel && isset($_GET["projekt"]) && is_string($_GET["projekt"]) && ctype_digit($_GET["projekt"])) {
+	try {
+		$nacteny_projekt = Projekty::nacti(Db::pdo(), $uzivatel["id"], (int)$_GET["projekt"]);
+		if ($nacteny_projekt !== null) $aktualni_projekt = ["id" => $nacteny_projekt["id"], "nazev" => $nacteny_projekt["name"]];
+	} catch (Throwable $e) {
+		error_log("Sekvenční tisk: nelze načíst projekt: ".$e->getMessage());
+	}
+}
+// Návrat po přihlášení: zpět na stejný výpočet (jen index.php s parametry, viz ucet.php).
+$zpet_po_prihlaseni = "index.php".(!empty($_SERVER["QUERY_STRING"]) ? "?".$_SERVER["QUERY_STRING"] : "");
+$odkaz_prihlaseni = "ucet.php?stranka=prihlaseni".(strlen($zpet_po_prihlaseni) <= 4000 ? "&zpet=".rawurlencode($zpet_po_prihlaseni) : "");
 
 // Cache busting / no-cache pro HTML (mobilní prohlížeče často agresivně cachují).
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -1059,9 +1083,78 @@ header("Expires: 0");
 				window.addEventListener('resize', adaptInstanceLabels);
 
 				// Header klik = návrat na homepage bez GET parametrů
-				$('#app_header').on('click', function () {
+				$('#app_header').on('click', function (e) {
+					// Odkazy a tlačítka účtu v hlavičce mají vlastní akci.
+					if (e.target.closest && e.target.closest('#ucet_panel')) return;
 					window.location.href = window.location.pathname;
 				});
+
+				// --- Projekty (jen přihlášený uživatel s DB): uložení vstupu formuláře k účtu (ucet.php?akce=ulozit_projekt).
+				const PROJEKTY_CSRF = <?php echo json_encode($uzivatel ? Relace::csrfToken() : "", JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);?>;
+				let aktualniProjekt = <?php echo json_encode($aktualni_projekt, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE);?>;
+				function otevriProjektModal() {
+					const $nazev = $('#projekt_nazev_vstup');
+					let navrh = aktualniProjekt ? aktualniProjekt.nazev : '';
+					if (!navrh) {
+						const prvni = ($("table#objekty input.nazev").first().val() || '').trim();
+						navrh = prvni !== '' ? prvni : ('Projekt ' + new Date().toLocaleDateString('cs-CZ'));
+					}
+					$nazev.val(navrh);
+					$('#projekt_chyba').text('');
+					// Otevřený projekt: Uložit změny (přepíše) i Uložit jako nový; jinak jen uložit nový.
+					$('#projekt_ulozit_zmeny').toggle(!!aktualniProjekt);
+					$('#projekt_ulozit_novy').toggleClass('primary', !aktualniProjekt).toggleClass('ghost', !!aktualniProjekt);
+					setBtnLabel(document.getElementById('projekt_ulozit_novy'), aktualniProjekt ? 'Uložit jako nový' : 'Uložit');
+					$('#projekt_modal').removeAttr('hidden');
+					$nazev.trigger('focus').trigger('select');
+				}
+				function zavriProjektModal() { $('#projekt_modal').attr('hidden', 'hidden'); }
+				async function ulozProjekt(jakoNovy) {
+					const nazev = ($('#projekt_nazev_vstup').val() || '').trim();
+					if (nazev === '') { $('#projekt_chyba').text('Vyplň název projektu.'); return; }
+					const telo = { nazev: nazev, data: get_form_state() };
+					if (!jakoNovy && aktualniProjekt) telo.id = aktualniProjekt.id;
+					const $tlacitka = $('#projekt_ulozit_zmeny, #projekt_ulozit_novy').prop('disabled', true);
+					try {
+						const odpoved = await fetch('ucet.php?akce=ulozit_projekt', {
+							method: 'POST',
+							credentials: 'same-origin',
+							headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': PROJEKTY_CSRF },
+							body: JSON.stringify(telo)
+						});
+						let data = null;
+						try { data = await odpoved.json(); } catch (e) { data = null; }
+						if (!odpoved.ok || !data || !data.projekt) {
+							$('#projekt_chyba').text(zpravaChyby(data, odpoved.status));
+							return;
+						}
+						aktualniProjekt = data.projekt;
+						$('#projekt_id').val(String(aktualniProjekt.id)).prop('disabled', false);
+						$('#projekt_nazev').text(aktualniProjekt.nazev);
+						$('#projekt_info').removeAttr('hidden');
+						// Obnovení stránky zůstane u projektu.
+						try {
+							const params = new URLSearchParams(window.location.search);
+							params.set('projekt', String(aktualniProjekt.id));
+							history.replaceState(null, '', window.location.pathname + '?' + params.toString() + window.location.hash);
+						} catch (e) { /* jen pohodlí */ }
+						zavriProjektModal();
+						setStatus('Projekt uložen');
+					} catch (e) {
+						$('#projekt_chyba').text('Projekt se nepodařilo uložit (síť): ' + e);
+					} finally {
+						$tlacitka.prop('disabled', false);
+					}
+				}
+				$('#ulozit_projekt').on('click', otevriProjektModal);
+				$('#projekt_zavrit').on('click', zavriProjektModal);
+				$('#projekt_modal').on('click', function (e) { if (e.target && e.target.id === 'projekt_modal') zavriProjektModal(); });
+				$('#projekt_ulozit_zmeny').on('click', function () { ulozProjekt(false); });
+				$('#projekt_ulozit_novy').on('click', function () { ulozProjekt(true); });
+				$('#projekt_nazev_vstup').on('keydown', function (e) {
+					if (e.key === 'Enter') { e.preventDefault(); ulozProjekt(!aktualniProjekt); }
+				});
+				$(document).on('keydown', function (e) { if (e.key === 'Escape') zavriProjektModal(); });
 
 				// Mobil: detaily bez hover + „tisková hlava“
 				let headEnabled = false;
@@ -1354,6 +1447,19 @@ header("Expires: 0");
 			}
 			.header h1 { margin: 0; font-size: 20px; }
 			.header .sub { color: var(--muted); font-size: 13px; }
+			/* Účet v hlavičce (jen s DB): vpravo, na úzkém displeji pod nadpisem. */
+			.header { flex-wrap: wrap; }
+			.header:has(.ucet-panel) .sub { margin-right: auto; }
+			.ucet-panel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; cursor: default; }
+			.ucet-panel .ucet-email { display: inline-flex; gap: 0.4em; align-items: center; color: var(--muted); font-weight: 600; max-width: 22rem; overflow: hidden; }
+			.ucet-panel .ucet-email span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+			.ucet-panel .ucet-odkaz { display: inline-flex; gap: 0.4em; align-items: center; font-weight: 600; text-decoration: none; }
+			.ucet-panel .ucet-odkaz:hover { text-decoration: underline; }
+			.ucet-panel form { margin: 0; }
+			.modal .panel.panel-uzky { width: min(92vw, 480px); }
+			.projekt-pole { display: grid; gap: 6px; font-weight: 600; }
+			.projekt-pole input { width: 100%; }
+			.projekt-chyba { color: var(--danger); font-size: 13px; min-height: 1em; margin-top: 6px; }
 
 			h2 { margin: 18px 0 10px; font-size: 16px; }
 			.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
@@ -1659,12 +1765,34 @@ header("Expires: 0");
 			<symbol id="i-crosshair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" x2="18" y1="12" y2="12"/><line x1="6" x2="2" y1="12" y2="12"/><line x1="12" x2="12" y1="6" y2="2"/><line x1="12" x2="12" y1="22" y2="18"/></symbol>
 			<symbol id="i-square-dashed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></symbol>
 			<symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
-			<symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+			<symbol id="i-cloud-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8"/><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="m8 17 4-4 4 4"/></symbol>
+			<symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+			<symbol id="i-log-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></symbol>
+			<symbol id="i-log-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+			<symbol id="i-layers"viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
 		</svg>
 		<div class="container">
 			<div id="app_header" class="header" title="Zpět na úvod (bez parametrů)">
 				<h1>Sekvenční tisk</h1>
 				<div class="sub">Výpočet rozložení instancí pro sekvenční tisk</div>
+<?php if ($ucty_zapnute) {?>
+				<div id="ucet_panel" class="ucet-panel">
+<?php if ($uzivatel) {?>
+					<span class="ucet-email" title="Přihlášený uživatel"><?php echo ikona("user");?><span><?php echo htmlspecialchars($uzivatel["email"], ENT_QUOTES, "UTF-8");?></span></span>
+					<a class="ucet-odkaz" href="ucet.php?stranka=projekty"><?php echo ikona("folder-open");?>Moje projekty</a>
+					<form method="post" action="ucet.php" class="ucet-odhlasit">
+						<input type="hidden" name="csrf" value="<?php echo htmlspecialchars(Relace::csrfToken(), ENT_QUOTES, "UTF-8");?>" />
+						<input type="hidden" name="akce" value="odhlasit" />
+						<button class="small ghost" type="submit"><?php echo ikona("log-out");?>Odhlásit</button>
+					</form>
+<?php } else {?>
+					<a class="ucet-odkaz" href="<?php echo htmlspecialchars($odkaz_prihlaseni, ENT_QUOTES, "UTF-8");?>"><?php echo ikona("log-in");?>Přihlásit</a>
+<?php if (Ucty::registraceZapnuta()) {?>
+					<a class="ucet-odkaz" href="<?php echo htmlspecialchars(str_replace("stranka=prihlaseni", "stranka=registrace", $odkaz_prihlaseni), ENT_QUOTES, "UTF-8");?>">Registrovat</a>
+<?php }?>
+<?php }?>
+				</div>
+<?php }?>
 			</div>
 <?php $html_vizualizace = ''; // vizualizace vedle formulare: plni se v bloku vysledku, vypisuje v .app-right ?>
 		<div class="app-grid">
@@ -1768,9 +1896,20 @@ header("Expires: 0");
 				<button class="ghost" id="import_modelu" type="button" title="Načte objekty (rozměry, název, počet) z 3MF z PrusaSliceru nebo ze STL"><?php echo ikona("file-up");?>Import 3MF/STL</button>
 				<input id="model_soubor" type="file" accept=".3mf,.stl" hidden="hidden" />
 				<input id="sit_token" type="hidden" name="sit_token" value="<?php echo htmlspecialchars($sit_token, ENT_QUOTES, "UTF-8");?>" />
+<?php if ($uzivatel) {?>
+				<button class="ghost" id="ulozit_projekt" type="button" title="Uloží objekty a nastavení formuláře k tvému účtu"><?php echo ikona("cloud-upload");?>Uložit projekt</button>
+				<input id="projekt_id" type="hidden" name="projekt" value="<?php echo $aktualni_projekt ? (int)$aktualni_projekt["id"] : "";?>"<?php if (!$aktualni_projekt) {?> disabled="disabled"<?php }?> />
+<?php }?>
 				<details id="more_menu" class="more-menu">
 					<summary title="Příklad, uložení do prohlížeče, export a import vstupu, sdílení odkazu" aria-expanded="false"><?php echo ikona("more");?>Další funkce<svg class="ico chevron" aria-hidden="true" focusable="false"><use href="#i-chevron-down"/></svg></summary>
 					<div class="more-menu-panel" role="group" aria-label="Další funkce">
+<?php if ($uzivatel) {?>
+						<button class="ghost" id="moje_projekty" type="button" title="Seznam uložených projektů: otevřít, přejmenovat, smazat" onclick="window.location.href='ucet.php?stranka=projekty';"><?php echo ikona("folder-open");?>Moje projekty</button>
+						<div class="sep" role="separator"></div>
+<?php } elseif ($ucty_zapnute) {?>
+						<button class="ghost" id="prihlasit_projekty" type="button" title="Projekty se ukládají k účtu" onclick="window.location.href=<?php echo htmlspecialchars(json_encode($odkaz_prihlaseni, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, "UTF-8");?>;"><?php echo ikona("log-in");?>Uložit projekt (po přihlášení)</button>
+						<div class="sep" role="separator"></div>
+<?php }?>
 						<button class="ghost" id="example_basic" type="button" title="Vyplní ukázková data"><?php echo ikona("lightbulb");?>Příklad (ukázková data)</button>
 						<div class="sep" role="separator"></div>
 						<button class="ghost" id="save_local" type="button" title="Uloží aktuální odkaz (query) do prohlížeče"><?php echo ikona("save");?>Uložit do prohlížeče</button>
@@ -1786,6 +1925,12 @@ header("Expires: 0");
 				<span id="local_status" style="color: var(--muted); font-weight: 600; align-self: center;"></span>
 			</div>
 			<div style="color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+<?php if ($zprava_uctu) {?>
+				<span id="zprava_uctu" style="color: <?php echo $zprava_uctu["typ"] === "chyba" ? "var(--danger)" : "var(--success)";?>; font-weight: 600;"><?php echo htmlspecialchars($zprava_uctu["text"], ENT_QUOTES, "UTF-8");?></span>
+<?php }?>
+<?php if ($uzivatel) {?>
+				<span id="projekt_info"<?php if (!$aktualni_projekt) {?> hidden="hidden"<?php }?>>Projekt: <strong id="projekt_nazev"><?php echo $aktualni_projekt ? htmlspecialchars($aktualni_projekt["nazev"], ENT_QUOTES, "UTF-8") : "";?></strong></span>
+<?php }?>
 				<span id="model_info"><?php if ($sit_token !== "") {?>Nahraný model: export 3MF použije jeho sítě.<?php }?></span>
 				<button class="small ghost" id="model_zapomenout" type="button" title="Export 3MF udělá kvádry zadaných rozměrů"<?php if ($sit_token === "") {?> style="display:none;"<?php }?>><?php echo ikona("box");?>Bez sítí</button>
 			</div>
@@ -1806,6 +1951,26 @@ header("Expires: 0");
 				</div>
 			</div>
 		</div>
+<?php if ($uzivatel) {?>
+
+		<div id="projekt_modal" class="modal" hidden="hidden" role="dialog" aria-modal="true" aria-labelledby="projekt_modal_titulek">
+			<div class="panel panel-uzky">
+				<div class="top">
+					<h3 id="projekt_modal_titulek">Uložit projekt</h3>
+					<button id="projekt_zavrit" class="small" type="button"><?php echo ikona("x");?>Zavřít</button>
+				</div>
+				<div class="hint">Uloží objekty a nastavení formuláře (stejně jako export vstupu). Nahraný model 3MF/STL se neukládá.</div>
+				<label for="projekt_nazev_vstup" class="projekt-pole">Název projektu
+					<input id="projekt_nazev_vstup" type="text" maxlength="<?php echo Projekty::MAX_DELKA_NAZVU;?>" autocomplete="off" />
+				</label>
+				<div id="projekt_chyba" class="projekt-chyba" role="alert"></div>
+				<div class="toolbar" style="margin-top: 10px;">
+					<button id="projekt_ulozit_zmeny" class="primary" type="button"><?php echo ikona("cloud-upload");?>Uložit změny</button>
+					<button id="projekt_ulozit_novy" class="ghost" type="button"><?php echo ikona("plus");?><span class="lbl">Uložit jako nový</span></button>
+				</div>
+			</div>
+		</div>
+<?php }?>
 
 <?php
 if ($chyba_tiskarny !== "") {

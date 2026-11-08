@@ -14,6 +14,7 @@ Api::obsluz(function (): void {
         'export' => ['soubor' => 'export.php', 'metody' => ['GET', 'POST'], 'klic' => 'vyzaduje', 'popis' => 'Výpočet a export do 3MF (každý kus samostatný objekt v pořadí tisku).'],
         'printers' => ['soubor' => 'printers.php', 'metody' => ['GET'], 'klic' => 'bez_klice', 'popis' => 'Předvolby tiskáren (?id=<id> jedna předvolba), bez klíče.'],
         'keys' => ['soubor' => 'keys.php', 'metody' => ['GET', 'POST', 'DELETE'], 'klic' => 'vzdy', 'popis' => 'Správa API klíčů (vyžaduje DB a platný klíč vždy).'],
+        'projects' => ['soubor' => 'projects.php', 'metody' => ['GET', 'POST', 'PUT', 'DELETE'], 'klic' => 'vzdy', 'popis' => 'Projekty vlastníka klíče: uložený vstup formuláře (vyžaduje DB a platný klíč vždy).'],
     ];
     if (isset($_GET['endpoint']) && is_scalar($_GET['endpoint']) && trim((string)$_GET['endpoint'], '/') !== '') {
         $endpoint = trim((string)$_GET['endpoint'], '/');
