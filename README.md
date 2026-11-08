@@ -119,6 +119,8 @@ Jak přidat tiskárnu:
 3. Do `zdroje` napiš u každé hodnoty, odkud je (vlastní měření, odkaz na dokumentaci výrobce, profil PrusaSliceru). Test `php tests/run.php` hlídá, že žádná hodnota nemá prázdný zdroj.
 4. Ověř výsledek (`php tests/run.php`, vizualizace s tiskovou hlavou) a nejlépe zkušební tisk.
 
+**S DB** se k předvolbám ze souboru přidají schválené tiskárny z DB s id `db_<číslo>` (viz [Tiskárny v DB](#tiskárny-v-db)); výchozí předvolba je vždy ze souboru a id předvolby v souboru nesmí začínat `db_`.
+
 Kde se volí: UI (výběr „Tiskárna“ v Nastavení, GET `tiskarna=<id>`, sdílený odkaz, export/import), CLI a API (`"tiskarna": "<id>"` v kořeni vstupu, nebo `"printer": "<id>"` místo objektu). Vlastní hodnoty v objektu `printer` přepíšou hodnoty předvolby (bez `tiskarna` přepisují výchozí MINI, jako dřív). Neznámá předvolba je chyba: CLI exit code 1, API v1 HTTP 404 `neznama_tiskarna` (viz [Formát chyb](#formát-chyb)), `index.php?format=json` `{"error": ...}`, UI hláška místo výpočtu. Seznam předvoleb vrací `GET /api/v1/printers.php` (bez API klíče).
 
 Rozměry objektu v tabulce UI mají mez (`max`) podle vybrané tiskárny: x = šířka plochy po korekci `posun_zprava`, y a z = plocha (u Prusa MINI 179 / 180 / 180 mm), s povolenou rotací (u objektu nebo všem) x i y do většího z rozměrů. Mez se přepočítá při změně tiskárny nebo rotace a hlídá ji inline validace (JS). Na serveru stejné meze bere validace vstupu CLI a API v1 (`src/VstupVypoctu.php`, rozměr nad mez = chyba 400 u pole); UI objekt nad mez nespočítá a ukážou ho v `limit` s důvodem `rozmer`.
@@ -189,7 +191,7 @@ Stabilní kontrakt jsou fyzické soubory v `api/v1/`, takže fungují i bez mod_
 | `api/v1/arrange.php` | GET, POST | ano* | výpočet rozmístění; POST = JSON tělo jako CLI, GET = stejné parametry jako UI |
 | `api/v1/import.php` | POST | ano* | import 3MF/STL (multipart `soubor` nebo tělo): objekty pro vstup, viz [Import a export 3MF](#import-a-export-3mf) |
 | `api/v1/export.php` | GET, POST | ano* | výpočet + 3MF ke stažení (JSON jako `arrange`, nebo multipart s modelem), `?podlozka=N` |
-| `api/v1/printers.php` | GET | **bez klíče** | předvolby tiskáren (`id`, `nazev`, `vychozi`, `parametry`, `plocha`, `zdroje`); `?id=<id>` jedna předvolba |
+| `api/v1/printers.php` | GET | **bez klíče** | předvolby tiskáren (`id`, `nazev`, `vychozi`, `parametry`, `plocha`, `zdroje`, `zdroj`: `soubor` / `db`); s DB i schválené tiskárny `db_<číslo>`; `?id=<id>` jedna předvolba |
 | `api/v1/keys.php` | GET, POST, DELETE | vždy | správa API klíčů (seznam, nový klíč, `?id=` zneplatnění) |
 | `api/v1/projects.php` | GET, POST, PUT, DELETE | vždy | projekty vlastníka klíče (seznam, `?id=` detail s daty, nový, přejmenování / přepsání dat, smazání) |
 | `api/v1/` (`index.php`) | GET | bez klíče | verze a seznam endpointů (pole `klic`: `vyzaduje`, `bez_klice`, `vzdy`) |
@@ -420,7 +422,9 @@ SetEnv DB_PASS "…"
 
 ### Tabulky
 
-`db/schema.sql`: `users`, `api_keys`, `api_key_rate_limits`, `printers` + `printer_head_steps` (tiskárny v DB, zatím je aplikace nepoužívá), z migrace `001_ucty_projekty.sql` `login_attempts` (pokusy o přihlášení a registraci) a `projects` (projekty). Volitelný seed je v `db/seed.sql`.
+`db/schema.sql`: `users`, `api_keys`, `api_key_rate_limits`, `printers` + `printer_head_steps` (tiskárny v DB), z migrace `001_ucty_projekty.sql` `login_attempts` (pokusy o přihlášení a registraci) a `projects` (projekty), z migrace `002_tiskarny.sql` sloupce `printers.xl_mm … yr_mm` (základní rozměry hlavy), `navrzeno_at` (návrh na zveřejnění) a `poznamka` (zdroj hodnot).
+
+`db/seed.sql` je záměrně prázdný: dřívější seed vkládal schválenou tiskárnu „PRUSA MINI (výchozí)“ s neověřeným schodem hlavy od 50 mm, která by se teď ukázala ve výběru vedle změřené předvolby MINI. Kdo ho dřív spustil, najde v souboru dotaz, jak tu tiskárnu najít a smazat.
 
 ### Přihlášení a registrace (`ucet.php`)
 
@@ -447,3 +451,28 @@ Stránka **API klíče** (`ucet.php?stranka=klice`, odkaz v navigaci účtu a v 
 - **Zneplatnit** (s potvrzením): API klíč dál odmítá s 401 `zneplatneny_klic`, záznam zůstane v seznamu.
 
 Logika je jedna pro UI, `api/v1/keys.php` i `bin/create_api_key.php`: `src/SpravaKlicu.php` (stejná validace názvu a limitu).
+
+### Tiskárny v DB
+
+Přihlášený uživatel spravuje vlastní tiskárny na stránce **Moje tiskárny** (`ucet.php?stranka=tiskarny`, odkaz v navigaci účtu, v Další funkce a vedle výběru tiskárny v Nastavení):
+
+- **Nová tiskárna** nebo **kopie předvolby** (ze souboru, schválené z DB i vlastní): podložka X/Y/Z, korekce zprava, rozměry hlavy Xl/Xr/Yl/Yr (platí od výšky 0), vodicí tyče Z/Y, volitelně [profil hlavy po výškách](#profil-hlavy-po-výškách-head_steps) a poznámka, odkud hodnoty jsou. Validace na serveru (`TiskarnyDb::overVstup`) i v prohlížeči: čísla v rozsahu, korekce menší než šířka, výšky schodů > 0, vzestupně a nejvýš výška tisku.
+- Stavy: **koncept** (vidí a ve výběru tiskárny používá jen vlastník, označená „vlastní, neschválená“), **čeká na schválení** (Navrhnout ke zveřejnění, jde stáhnout), **schválená** (veřejná: výběr tiskárny v UI pro všechny, `api/v1/printers.php` bez klíče, API výpočtu a CLI s `tiskarna: "db_<číslo>"`). Schválenou tiskárnu vlastník neupraví ani nesmaže.
+- **Úprava veřejné tiskárny**: Kopírovat, v kopii zaškrtnout „Je to návrh úpravy veřejné tiskárny“ a navrhnout. Když ji admin schválí, hodnoty se přepíšou do původní tiskárny (id `db_<číslo>`, a tedy sdílené odkazy, zůstane) a kopie se smaže.
+- **Schvalování** (`ucet.php?stranka=schvalovani`, jen admin = `users.is_admin`, viz [Nastavení DB](#nastavení-db)): návrhy s hodnotami, schody, autorem a zdrojem; Schválit / Vrátit k úpravám; u schválených Zrušit zveřejnění (vrátí ji vlastníkovi jako koncept).
+- CLI (`bin/arrange.php`) a API vidí tiskárny z DB jen když je nastavené `DB_DSN`; chyba DB = jen předvolby ze souboru. Logika: `src/TiskarnyDb.php`, napojení na výběr `src/PredvolbyTiskaren.php`.
+
+### Profil hlavy po výškách (head_steps)
+
+Profil hlavy = „od výšky z platí rozměry hlavy Xl / Xr / Yl / Yr“, z se měří od špičky trysky nahoru. Pod nejnižším schodem platí základní rozměry hlavy. V tiskárně z DB je základ ve sloupcích `xl_mm … yr_mm` a schody (z > 0) v `printer_head_steps`; kalkulátor dostane `printer.head_steps` včetně základu jako schodu z = 0 (`TiskarnyDb::naParametry`), protože kalkulátor při schodech použije jen je (pod nejnižším schodem by vzal první schod, ne základ). Předvolba v `config/tiskarny.json` i vstup CLI/API (`printer.head_steps`) může schody mít taky (klíče `z`, `Xl` … nebo `z_mm`, `xl` …).
+
+**Co s tím dnes dělá výpočet (zjištěno v kódu, listopad 2026):**
+
+1. **Směr tisku** (`smer_X`, `smer_Y`) se určí ze schodu pro **nejvyšší** objekt vstupu (`SequentialPrintCalculator::vypocitejRozlozeni`).
+2. **Rozmístění** bere schod pro výšku **právě umisťovaného** objektu (`getHeadForHeight($oz)`): mezera v řadě (`Xl` / `Xr`), posun další řady (`Yr`) i odsunutí řady kvůli hlavě (`minPosunYForHeadClearance`).
+3. **Kontrola kolizí** (`CollisionChecker::hlavaProVysku`) bere schod pro výšku **dřív vytištěného** kusu (nejbližší schod z ≤ H), protože hlava při tisku nového kusu sjede až k podložce a zasáhnout může jen dřívější kus. Najde-li kolizi, výpočet kus posune nebo vynechá (viz [Kontrola kolizí](#kontrola-kolizí)), takže výsledek je bez kolize podle tohohle pravidla.
+4. **Vizualizace** kreslí hlavu se schodem pro výšku vybraného kusu (jako bod 2).
+
+**Na co si dát pozor při měření:** kontrola kolizí bere pro dřívější kus výšky H jen schod platný ve výšce H, ne širší části hlavy níž. To je přesné, když se profil směrem nahoru **nezužuje** (každý schod je v každém směru aspoň tak široký jako hlava pod ním). Když je hlava dole širší než nahoře (např. ventilátor u trysky širší než vozík), kontrola může kolizi spodní části hlavy s vyšším dřívějším kusem přehlédnout. Do zpřesnění kontroly proto zadávej **obálku**: u každého schodu největší rozměr hlavy od trysky až po tu výšku. Formulář tiskárny i stránka schvalování na zužující se profil upozorní (`TiskarnyDb::varovaniProfilu`), uložení neblokuje.
+
+Jak změřit profil (např. Prusa MINI): hlavu sjeď na Z = 0 (tryska na podložce), u každé výšky, kde se mění tvar hlavy (blok trysky, ventilátor, vozík), změř vzdálenost trysky od levé, pravé, přední a zadní hrany hlavy v té výšce a níž (obálka). Základ (od 0) jsou hodnoty u trysky. Pak tiskárnu ulož jako kopii předvolby MINI se schody, ověř vizualizací a zkušebním tiskem a teprve potom navrhni ke zveřejnění; změřené hodnoty MINI v `config/tiskarny.json` zůstávají beze změny.

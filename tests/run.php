@@ -947,6 +947,9 @@ if (PHP_SAPI === 'cli') {
     // --- Účty a projekty (Milník D2): bez DB i s DB (TEST_DB_DSN) ---
     require __DIR__ . DIRECTORY_SEPARATOR . 'ucty.php';
 
+    // --- Tiskárny v DB a profil hlavy po výškách (Milník D3): bez DB i s DB (TEST_DB_DSN) ---
+    require __DIR__ . DIRECTORY_SEPARATOR . 'tiskarny.php';
+
     // --- API v1 s DB (jen lokálně, když je nastavené TEST_DB_DSN): klíč, X-RateLimit-*, 429 s Retry-After, správa klíčů ---
     $dsn = getenv("TEST_DB_DSN");
     if ($dsn === false || $dsn === "") {

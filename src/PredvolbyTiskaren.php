@@ -10,6 +10,10 @@
  * `parametry` mají stejné klíče jako `printer` (x, y, z, posun_zprava, Xl, Xr, Yl, Yr,
  * vodici_tyce_Z, vodici_tyce_Y, volitelně head_steps), `zdroje` u každé hodnoty říkají, odkud je.
  *
+ * S DB (env DB_DSN, Milník D3) se k předvolbám ze souboru přidají schválené tiskárny z tabulky printers
+ * s id `db_<číslo>` (src/TiskarnyDb.php); po zahrnoutVlastni() i neschválené tiskárny přihlášeného uživatele.
+ * Výchozí tiskárna je vždy ze souboru. Chyba DB = jen předvolby ze souboru (aplikace funguje dál).
+ *
  * Kompatibilita: PHP 7.4+ (bez Composeru).
  */
 
@@ -18,8 +22,14 @@ class PredvolbyTiskaren
     /** Povinné parametry předvolby (head_steps je volitelné). */
     public const POVINNE_PARAMETRY = ['x', 'y', 'z', 'posun_zprava', 'Xr', 'Xl', 'Yr', 'Yl', 'vodici_tyce_Z', 'vodici_tyce_Y'];
 
-    /** @var array|null Načtený a ověřený soubor (cache pro jeden běh). */
+    /** @var array|null Předvolby ze souboru + z DB (cache pro jeden běh). */
     private static $data = null;
+
+    /** @var array|null Načtený a ověřený soubor (cache pro jeden běh). */
+    private static $soubor = null;
+
+    /** @var int|null Přihlášený uživatel, jehož neschválené tiskárny se mají nabízet taky. */
+    private static $uzivatelId = null;
 
     /** Cesta k souboru s předvolbami. */
     public static function soubor(): string
@@ -32,9 +42,9 @@ class PredvolbyTiskaren
      *
      * @throws RuntimeException Když soubor chybí, není platný JSON nebo předvolbě chybí povinný parametr.
      */
-    private static function data(): array
+    private static function souborData(): array
     {
-        if (self::$data !== null) return self::$data;
+        if (self::$soubor !== null) return self::$soubor;
 
         $soubor = self::soubor();
         $raw = is_readable($soubor) ? file_get_contents($soubor) : false;
@@ -44,6 +54,7 @@ class PredvolbyTiskaren
             throw new RuntimeException("Soubor s předvolbami tiskáren {$soubor} nemá neprázdný objekt 'tiskarny'.");
         }
         foreach ($data['tiskarny'] as $id => $tiskarna) {
+            if (strpos((string)$id, 'db_') === 0) throw new RuntimeException("Předvolba tiskárny '{$id}': id nesmí začínat 'db_' (vyhrazeno pro tiskárny z DB).");
             $parametry = $tiskarna['parametry'] ?? null;
             if (!is_array($parametry)) throw new RuntimeException("Předvolba tiskárny '{$id}' nemá 'parametry'.");
             foreach (self::POVINNE_PARAMETRY as $klic) {
@@ -55,14 +66,60 @@ class PredvolbyTiskaren
         if (!isset($data['vychozi']) || !isset($data['tiskarny'][$data['vychozi']])) {
             throw new RuntimeException("Soubor s předvolbami tiskáren: 'vychozi' musí být id existující předvolby.");
         }
+        foreach ($data['tiskarny'] as $id => $tiskarna) $data['tiskarny'][$id]['zdroj'] = 'soubor';
+        self::$soubor = $data;
+        return $data;
+    }
+
+    /** Předvolby ze souboru a (s DB) tiskárny z DB. */
+    private static function data(): array
+    {
+        if (self::$data !== null) return self::$data;
+        $data = self::souborData();
+        if ((string)(getenv('DB_DSN') ?: '') !== '') {
+            try {
+                require_once __DIR__ . DIRECTORY_SEPARATOR . 'TiskarnyDb.php';
+                $pdo = Db::pdo();
+                $zDb = TiskarnyDb::schvalene($pdo);
+                if (self::$uzivatelId !== null) $zDb = array_merge($zDb, TiskarnyDb::vlastniNeschvalene($pdo, self::$uzivatelId));
+                foreach ($zDb as $t) {
+                    $data['tiskarny'][TiskarnyDb::idPredvolby($t['id'])] = [
+                        'nazev' => $t['name'] . ($t['approved'] ? '' : ' (vlastní, neschválená)'),
+                        'parametry' => TiskarnyDb::naParametry($t),
+                        'zdroje' => $t['poznamka'] !== '' ? ['poznamka' => $t['poznamka']] : [],
+                        'zdroj' => 'db',
+                        'schvaleno' => $t['approved'],
+                    ];
+                }
+            } catch (Throwable $e) {
+                error_log('Sekvenční tisk: tiskárny z DB nejde načíst: ' . $e->getMessage());
+            }
+        }
         self::$data = $data;
         return $data;
+    }
+
+    /**
+     * Nabízet i neschválené tiskárny tohoto uživatele (UI po přihlášení). null = jen schválené.
+     * Vymaže cache, další dotaz načte DB znovu.
+     */
+    public static function zahrnoutVlastni(?int $userId): void
+    {
+        self::$uzivatelId = $userId;
+        self::$data = null;
+    }
+
+    /** Vymaže cache (testy, po změně tiskáren v DB). */
+    public static function obnov(): void
+    {
+        self::$data = null;
+        self::$soubor = null;
     }
 
     /** Id výchozí předvolby (Prusa MINI). */
     public static function vychoziId(): string
     {
-        return (string)self::data()['vychozi'];
+        return (string)self::souborData()['vychozi'];
     }
 
     /** Existuje předvolba s tímto id? */
@@ -123,7 +180,9 @@ class PredvolbyTiskaren
             'vychozi' => (string)$id === self::vychoziId(),
             'parametry' => $parametry,
             'plocha' => self::plocha($parametry),
-            'zdroje' => isset($tiskarna['zdroje']) && is_array($tiskarna['zdroje']) ? $tiskarna['zdroje'] : new stdClass(),
+            'zdroje' => isset($tiskarna['zdroje']) && is_array($tiskarna['zdroje']) && !empty($tiskarna['zdroje']) ? $tiskarna['zdroje'] : new stdClass(),
+            // Odkud předvolba je: soubor (config/tiskarny.json) nebo db (schválená tiskárna z DB).
+            'zdroj' => $tiskarna['zdroj'] ?? 'soubor',
         ];
     }
 

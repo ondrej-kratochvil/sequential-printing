@@ -117,7 +117,15 @@ function array_msort($array, $cols) {
 	return $ret;
 }
 
-/* Nastavení tiskárny: předvolba z config/tiskarny.json (GET tiskarna, bez parametru výchozí Prusa MINI) */
+/* Účty (jen s DB): session se obnoví, jen když prohlížeč už cookie má (anonymní návštěva bez cookie i bez DB).
+   Bez DB_DSN se v UI nic z účtů nezobrazí a vše ostatní funguje jako dřív. */
+$ucty_zapnute = Relace::dbZapnuta();
+Relace::startPokudExistuje();
+$uzivatel = Relace::uzivatel();
+// Přihlášený uživatel vidí ve výběru tiskárny i své neschválené tiskárny z DB (schválené vidí všichni).
+if ($uzivatel) PredvolbyTiskaren::zahrnoutVlastni($uzivatel["id"]);
+
+/* Nastavení tiskárny: předvolba z config/tiskarny.json a schválené tiskárny z DB (GET tiskarna, bez parametru výchozí Prusa MINI) */
 
 $predvolby_tiskaren = PredvolbyTiskaren::seznam();
 $tiskarna_id = PredvolbyTiskaren::vychoziId();
@@ -331,11 +339,6 @@ if (isset($_GET["format"]) && $_GET["format"] === "3mf") {
 	});
 }
 
-/* Účty (jen s DB): session se obnoví, jen když prohlížeč už cookie má (anonymní návštěva bez cookie i bez DB).
-   Bez DB_DSN se v UI nic z účtů nezobrazí a vše ostatní funguje jako dřív. */
-$ucty_zapnute = Relace::dbZapnuta();
-Relace::startPokudExistuje();
-$uzivatel = Relace::uzivatel();
 // Jednorázová zpráva z účtu (např. po registraci) se ukáže u formuláře.
 $zprava_uctu = $uzivatel ? Relace::vezmiZpravu() : null;
 // Otevřený projekt (ucet.php?akce=otevrit přesměruje sem s parametry formuláře a projekt=id): jen vlastní projekt.
@@ -1767,6 +1770,7 @@ header("Expires: 0");
 			<symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
 			<symbol id="i-cloud-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8"/><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="m8 17 4-4 4 4"/></symbol>
 			<symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
+			<symbol id="i-printer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></symbol>
 			<symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
 			<symbol id="i-log-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></symbol>
 			<symbol id="i-log-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
@@ -1842,6 +1846,9 @@ header("Expires: 0");
 							<option value="<?php echo htmlspecialchars($id_predvolby, ENT_QUOTES, "UTF-8");?>"<?php if ($id_predvolby === $tiskarna_id) {?> selected="selected"<?php }?>><?php echo htmlspecialchars($nazev_predvolby, ENT_QUOTES, "UTF-8");?></option>
 <?php }?>
 						</select>
+<?php if ($uzivatel) {?>
+						<a href="ucet.php?stranka=tiskarny" style="font-weight: 600;">Moje tiskárny</a>
+<?php }?>
 					</label>
 					<label for="vice_podlozek">
 						<input id="vice_podlozek" type="checkbox" name="vice_podlozek" value="1" <?php if($vice_podlozek) {?>checked="checked" <?php }?>/>
@@ -1907,6 +1914,7 @@ header("Expires: 0");
 <?php if ($uzivatel) {?>
 						<button class="ghost" id="moje_projekty" type="button" title="Seznam uložených projektů: otevřít, přejmenovat, smazat" onclick="window.location.href='ucet.php?stranka=projekty';"><?php echo ikona("folder-open");?>Moje projekty</button>
 						<button class="ghost" id="api_klice" type="button" title="API klíče pro integrace (vytvořit, zneplatnit)" onclick="window.location.href='ucet.php?stranka=klice';"><?php echo ikona("key");?>API klíče</button>
+						<button class="ghost" id="moje_tiskarny" type="button" title="Vlastní tiskárny, profil hlavy po výškách, návrh na zveřejnění" onclick="window.location.href='ucet.php?stranka=tiskarny';"><?php echo ikona("printer");?>Moje tiskárny</button>
 						<div class="sep" role="separator"></div>
 <?php } elseif ($ucty_zapnute) {?>
 						<button class="ghost" id="prihlasit_projekty" type="button" title="Projekty se ukládají k účtu" onclick="window.location.href=<?php echo htmlspecialchars(json_encode($odkaz_prihlaseni, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, "UTF-8");?>;"><?php echo ikona("log-in");?>Uložit projekt (po přihlášení)</button>
