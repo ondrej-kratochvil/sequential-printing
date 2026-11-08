@@ -1,6 +1,6 @@
 <?php
 /**
- * Správa API klíčů (DB) - sdílená logika pro legacy api_keys.php a api/v1/keys.php.
+ * Správa API klíčů (DB) - logika pro api/v1/keys.php.
  *
  * Klíč se ukládá jen jako sha256 hash, plaintext se vrátí jen jednou při vytvoření.
  *
@@ -31,7 +31,7 @@ class SpravaKlicu
     }
 
     /**
-     * Ověří tělo požadavku na nový klíč. Pořadí chyb = pořadí kontrol v původním api_keys.php.
+     * Ověří tělo požadavku na nový klíč. Pořadí chyb = pořadí kontrol (name, rate_limit_per_min).
      *
      * @return array ['name' => string, 'rate_limit_per_min' => int, 'chyby' => [{pole, zprava}]]
      */

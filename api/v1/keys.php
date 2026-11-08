@@ -6,7 +6,7 @@
  * POST   /api/v1/keys.php          JSON {"name": "...", "rate_limit_per_min": 60} => 201, plaintext `api_key` jen jednou
  * DELETE /api/v1/keys.php?id=123   => {"ok": true}, neznámý / už zneplatněný klíč = 404 klic_nenalezen
  *
- * Chyby ve formátu API v1 (viz src/ApiChyba.php). Logika je společná s legacy api_keys.php (src/SpravaKlicu.php).
+ * Chyby ve formátu API v1 (viz src/ApiChyba.php). Logika je v src/SpravaKlicu.php. Nahrazuje odstraněný api_keys.php.
  */
 
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Api.php';

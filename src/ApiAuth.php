@@ -147,7 +147,8 @@ class ApiAuth
         $cnt = $row ? (int)$row['cnt'] : 1;
 
         if ($cnt > $perMin) {
-            throw new ApiAuthHttpException(429, 'Rate limit exceeded.', 'prekrocen_limit', self::sekundDoDalsihoOkna($ted), $perMin);
+            $retry = self::sekundDoDalsihoOkna($ted);
+            throw new ApiAuthHttpException(429, "Překročen limit {$perMin} požadavků za minutu. Zkus to znovu za {$retry} s.", 'prekrocen_limit', $retry, $perMin);
         }
         return self::stavLimitu($perMin, $cnt, $ted);
     }

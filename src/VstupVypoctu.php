@@ -113,7 +113,7 @@ class VstupVypoctu
             $pridej('objekty', "chybí neprázdné pole 'objekty'.");
             $objekty = [];
         } elseif (!$zDotazu && array_keys($objekty) !== range(0, count($objekty) - 1)) {
-            // GET z UI posílá objekty[0], objekty[1] …; klíče tam zůstanou jako dřív v api.php.
+            // GET z UI posílá objekty[0], objekty[1] …; klíče tam zůstanou (jako v UI).
             $pridej('objekty', "'objekty' musí být pole (seznam), ne objekt.");
             $objekty = [];
         }

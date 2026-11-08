@@ -2,12 +2,11 @@
 /**
  * Sdílená vrstva JSON API: vstup, autentizace (API klíč + rate limit) a odpověď.
  *
- * Používají ji stabilní endpointy api/v1/*.php i legacy api.php a api_keys.php, aby se
- * čtení vstupu, ověření klíče a odesílání odpovědi neopakovalo.
+ * Používají ji endpointy api/v1/*.php (a odpovědi 410 na místě odstraněných api.php a api_keys.php),
+ * aby se čtení vstupu, ověření klíče a odesílání odpovědi neopakovalo.
  *
  * API v1 vrací chyby jednotně (viz ApiChyba):
  *   {"error": {"code": "...", "message": "...", "details": {...}}}
- * Legacy endpointy si nechávají dosavadní tvar {"error": "<text>"} (viz odeslatLegacyChybu()).
  *
  * Testovatelnost bez webového serveru: vstup jde podstrčit přes Api::$surovyVstup (místo
  * php://input) a poslední odpověď (status, hlavičky, tělo) je v Api::$odeslano.
@@ -172,7 +171,7 @@ class Api
     }
 
     /**
-     * Vstup výpočtu: POST = JSON tělo, GET = query string (stejné parametry jako UI a api.php).
+     * Vstup výpočtu: POST = JSON tělo, GET = query string (stejné parametry jako UI).
      *
      * @return array [vstup, zDotazu]
      * @throws ApiChyba
@@ -187,18 +186,16 @@ class Api
      * Ověří API klíč a započítá požadavek do rate limitu (ApiAuth). Stav okna přidá do hlaviček
      * odpovědi (X-RateLimit-Limit, X-RateLimit-Remaining).
      *
-     * @param bool $legacy Text chyby jako dřív (429 „Rate limit exceeded.“), jinak česky.
      * @return array Řádek klíče z ApiAuth::requireApiKey().
      * @throws ApiChyba 401, 429 (s Retry-After), 500.
      */
-    public static function overKlic(bool $legacy = false): array
+    public static function overKlic(): array
     {
         try {
             $auth = ApiAuth::requireApiKey();
         } catch (ApiAuthHttpException $e) {
             $details = [];
             $hlavicky = [];
-            $zprava = $e->getMessage();
             if ($e->statusCode === 429 && $e->retryAfter !== null) {
                 $details = ['retry_after' => $e->retryAfter, 'limit' => $e->limit];
                 $hlavicky = ['Retry-After' => (string)$e->retryAfter];
@@ -206,9 +203,8 @@ class Api
                     $hlavicky['X-RateLimit-Limit'] = (string)$e->limit;
                     $hlavicky['X-RateLimit-Remaining'] = '0';
                 }
-                if (!$legacy) $zprava = "Překročen limit {$e->limit} požadavků za minutu. Zkus to znovu za {$e->retryAfter} s.";
             }
-            throw new ApiChyba($e->statusCode, $e->kod, $zprava, $details, $hlavicky);
+            throw new ApiChyba($e->statusCode, $e->kod, $e->getMessage(), $details, $hlavicky);
         } catch (Throwable $e) {
             throw new ApiChyba(500, 'chyba_overeni', 'Chyba při ověření API klíče.');
         }
@@ -311,12 +307,6 @@ class Api
     public static function odeslatChybu(ApiChyba $e): void
     {
         self::odeslat($e->status, $e->telo(), $e->hlavicky);
-    }
-
-    /** Odešle chybu v dosavadním tvaru legacy endpointů: {"error": "<text>"} (hlavičky jako v1, tělo beze změny). */
-    public static function odeslatLegacyChybu(ApiChyba $e, ?string $zprava = null): void
-    {
-        self::odeslat($e->status, ['error' => $zprava ?? $e->getMessage()], $e->hlavicky);
     }
 
     /**

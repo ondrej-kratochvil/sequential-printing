@@ -15,7 +15,7 @@
 //   (config/tiskarny.json), vlastní hodnoty v objektu printer přepíšou předvolbu. options.vice_podlozek = více podložek.
 //   S --import: bez "objekty" ve vstupu se objekty vezmou z modelu, jinak "sit" = index objektu v modelu (síť pro export).
 //
-// Výstup: JSON se stejnými klíči jako api.php (positions, pozice, pocet_instanci, pocet_podlozek,
+// Výstup: JSON se stejnými klíči jako api/v1/arrange.php (positions, pozice, pocet_instanci, pocet_podlozek,
 // objekty, printer, kontrola_kolizi, limit, otocene_objekty, podlozky); jen s --import bez vstupu a bez exportu
 // výsledek importu (objekty, soubor, modely, varovani). --export-3mf zapíše 3MF (u více podložek bez --podlozka
 // soubor na podložku: vystup_podlozka_1.3mf, …), zapsané soubory vypíše na stderr.
