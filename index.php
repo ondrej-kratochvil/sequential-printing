@@ -1169,6 +1169,8 @@ header("Expires: 0");
 					el.textContent = text || '';
 				}
 
+				// headSteps jsou už obálka (CollisionChecker::obalkaSchodu), takže schod pro výšku = obálka hlavy do té výšky,
+				// stejné rozměry jako v kontrole kolizí a v rozmístění.
 				function pickHeadStep(headSteps, height) {
 					if (!Array.isArray(headSteps) || headSteps.length === 0) return null;
 					let best = headSteps[0];
@@ -2247,7 +2249,7 @@ if (!empty($pos)) {
 <?php }?>
 				<div id="tiskova_podlozka"
 						 data-printer='<?php echo htmlspecialchars(json_encode($vysledek["printer"] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
-						 data-head-steps='<?php echo htmlspecialchars(json_encode(($vysledek["printer"]["head_steps"] ?? []), JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
+						 data-head-steps='<?php echo htmlspecialchars(json_encode(CollisionChecker::obalkaSchodu($vysledek["printer"]["head_steps"] ?? []), JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8");?>'
 						 style="--bed-x: <?php echo format_cislo($vizX, false, 2, false, ".");?>; --bed-y: <?php echo format_cislo($vizY, false, 2, false, ".");?>; --grid-x: <?php echo number_format($grid_x_pct, 4, ".", "");?>%; --grid-y: <?php echo number_format($grid_y_pct, 4, ".", "");?>%;">
 					<div class="overlay"></div>
 <?php

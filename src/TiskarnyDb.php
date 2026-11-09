@@ -234,29 +234,6 @@ class TiskarnyDb
         return $parametry;
     }
 
-    /**
-     * Varování k profilu hlavy: schod, který je v některém směru užší než část hlavy pod ním.
-     * Kontrola kolizí (CollisionChecker::hlavaProVysku) bere pro dřívější kus výšky H jen schod pro výšku H, ne širší
-     * části hlavy níž, takže u profilu, který se směrem nahoru zužuje, může kolizi přehlédnout (README, Profil hlavy
-     * po výškách). Bezpečné je zadat obálku: každý schod aspoň tak široký jako všechno pod ním.
-     *
-     * @return string[]
-     */
-    public static function varovaniProfilu(array $tiskarna): array
-    {
-        $varovani = [];
-        $pod = ['Xl' => (float)$tiskarna['Xl'], 'Xr' => (float)$tiskarna['Xr'], 'Yl' => (float)$tiskarna['Yl'], 'Yr' => (float)$tiskarna['Yr']];
-        foreach (array_values($tiskarna['head_steps'] ?? []) as $i => $s) {
-            $uzsi = [];
-            foreach (self::KLICE_HLAVY as $klic) {
-                if ((float)$s[$klic] < $pod[$klic]) $uzsi[] = $klic;
-                $pod[$klic] = max($pod[$klic], (float)$s[$klic]);
-            }
-            if (!empty($uzsi)) $varovani[] = 'Schod ' . ($i + 1) . ' (od ' . $s['z'] . ' mm) je užší než hlava pod ním (' . implode(', ', $uzsi) . ').';
-        }
-        return $varovani;
-    }
-
     /** Stav pro zobrazení: koncept | navrzeno | schvaleno. */
     public static function stav(array $tiskarna): string
     {

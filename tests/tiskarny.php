@@ -39,17 +39,20 @@ assertSame(["name", "x", "posun_zprava", "Yr"], array_keys(TiskarnyDb::overVstup
 $spatny = $formular;
 $spatny["posun_zprava"] = "180";
 assertTrue(isset(TiskarnyDb::overVstup($spatny)["chyby"]["posun_zprava"]), "Tiskárna: korekce zprava menší než šířka");
-assertSame(2, count(TiskarnyDb::varovaniProfilu($o["tiskarna"])), "Tiskárna: varování u schodů užších než hlava pod nimi");
-$obalka = $o["tiskarna"];
-$obalka["head_steps"] = [["z" => 30.0, "Xl" => 40.0, "Xr" => 12.0, "Yl" => 15.5, "Yr" => 16.0]];
-assertSame([], TiskarnyDb::varovaniProfilu($obalka), "Tiskárna: obálka (nezužuje se) bez varování");
 assertSame([12, null, null], [TiskarnyDb::cisloZId("db_12"), TiskarnyDb::cisloZId("db_0"), TiskarnyDb::cisloZId("prusa_mini")], "Tiskárna: id db_<číslo>");
 $param = TiskarnyDb::naParametry($o["tiskarna"]);
 assertSame([0.0, 36.5, 30.0, 60.0], [$param["head_steps"][0]["z"], $param["head_steps"][0]["Xl"], $param["head_steps"][1]["z"], $param["head_steps"][2]["z"]], "Tiskárna: kalkulátor dostane základ jako schod z = 0");
 $bezSchodu = $o["tiskarna"];
 $bezSchodu["head_steps"] = [];
 assertTrue(!isset(TiskarnyDb::naParametry($bezSchodu)["head_steps"]), "Tiskárna bez schodů: bez head_steps");
-// Kalkulátor se schody: vysoký kus (z 70) bere schod od 60 (užší hlava), výsledek bez kolize.
+// Profil, který se nahoru zužuje (schody 30 a 60 užší než základ): obálka drží po složkách maximum zdola,
+// takže kalkulátor i kontrola počítají u každé výšky se základními rozměry (varování ve formuláři už není potřeba).
+assertSame(
+    [[0.0, 36.5, 12.0, 15.5, 15.5], [30.0, 36.5, 12.0, 15.5, 15.5], [60.0, 36.5, 12.0, 15.5, 15.5]],
+    array_map(function ($s) { return [$s["z"], $s["Xl"], $s["Xr"], $s["Yl"], $s["Yr"]]; }, CollisionChecker::obalkaSchodu($param["head_steps"])),
+    "Tiskárna: obálka zužujícího se profilu = základ"
+);
+// Kalkulátor se schody: vysoký kus (z 70) počítá s obálkou do 70 mm (tady základ), výsledek bez kolize.
 $res = (new SequentialPrintCalculator($param, []))->calculate([["x" => 30, "y" => 30, "z" => 70, "instances" => ["d" => "max"]]]);
 assertTrue($res["kontrola_kolizi"]["ok"] && $res["pocet_instanci"] > 0, "Tiskárna se schody: výpočet bez kolize");
 assertSame(["prusa_mini"], array_keys(PredvolbyTiskaren::seznam()), "Bez DB: předvolby jen ze souboru");

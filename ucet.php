@@ -209,12 +209,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 $http_status = 400;
             } elseif ($id > 0) {
                 $ok = TiskarnyDb::uprav($pdo, $uzivatel['id'], $id, $overeno['tiskarna']);
-                Relace::nastavZpravu($ok ? 'Tiskárna je uložená.' . (empty($varovani = TiskarnyDb::varovaniProfilu($overeno['tiskarna'])) ? '' : ' Pozor: ' . implode(' ', $varovani) . ' Kontrola kolizí bere jen schod pro výšku dřívějšího kusu, zadej raději obálku (každý schod aspoň tak široký jako hlava pod ním), viz README.') : 'Tiskárnu nejde upravit (není tvoje nebo je už schválená).', $ok ? 'ok' : 'chyba');
+                Relace::nastavZpravu($ok ? 'Tiskárna je uložená.' : 'Tiskárnu nejde upravit (není tvoje nebo je už schválená).', $ok ? 'ok' : 'chyba');
                 presmeruj('ucet.php?stranka=tiskarny');
             } else {
                 $nahrazuje = isset($_POST['nahrazuje']) && is_string($_POST['nahrazuje']) && ctype_digit($_POST['nahrazuje']) && !empty($_POST['navrh_upravy']) ? (int)$_POST['nahrazuje'] : null;
                 TiskarnyDb::vytvor($pdo, $uzivatel['id'], $overeno['tiskarna'], $nahrazuje);
-                Relace::nastavZpravu('Tiskárna je uložená. Ve výběru tiskárny ji vidíš jen ty, dokud ji nenavrhneš ke zveřejnění a admin ji neschválí.' . (empty($varovani = TiskarnyDb::varovaniProfilu($overeno['tiskarna'])) ? '' : ' Pozor: ' . implode(' ', $varovani) . ' Kontrola kolizí bere jen schod pro výšku dřívějšího kusu, zadej raději obálku (každý schod aspoň tak široký jako hlava pod ním), viz README.'));
+                Relace::nastavZpravu('Tiskárna je uložená. Ve výběru tiskárny ji vidíš jen ty, dokud ji nenavrhneš ke zveřejnění a admin ji neschválí.');
                 presmeruj('ucet.php?stranka=tiskarny');
             }
         } else {
@@ -420,7 +420,7 @@ if ($stranka === 'tiskarna') {
 
     // Profil hlavy po výškách (head_steps).
     echo '<h3>Profil hlavy po výškách (schody, volitelné)</h3>';
-    echo '<p class="muted">Řádek „od výšky z platí rozměry hlavy Xl / Xr / Yl / Yr“. Výšky z se měří od špičky trysky nahoru, musí být větší než 0 a jít vzestupně; pod prvním schodem platí základní rozměry hlavy výše. Jak to kalkulátor použije, popisuje README (Profil hlavy po výškách).</p>';
+    echo '<p class="muted">Řádek „od výšky z platí rozměry hlavy Xl / Xr / Yl / Yr“. Výšky z se měří od špičky trysky nahoru, musí být větší než 0 a jít vzestupně; pod prvním schodem platí základní rozměry hlavy výše. Zadej skutečné rozměry každé části hlavy, i když je hlava dole širší než nahoře: obálku (po složkách největší rozměr hlavy od trysky do dané výšky) počítá aplikace sama. Víc v README (Profil hlavy po výškách).</p>';
     if (isset($chyby['head_steps'])) echo '<p class="chyba-text">' . $h($chyby['head_steps']) . '</p>';
     echo '<div class="table-wrap"><table id="schody"><thead><tr><th>Od výšky z (mm)</th><th>Xl</th><th>Xr</th><th>Yl</th><th>Yr</th><th></th></tr></thead><tbody>';
     $schody = $f['head_steps'];
@@ -436,7 +436,7 @@ if ($stranka === 'tiskarna') {
     foreach (array_values($schody) as $i => $s) echo $radek_schodu($i, $s);
     echo '</tbody></table></div>';
     echo '<template id="sablona_schodu">' . $radek_schodu('__I__', []) . '</template>';
-    echo '<div class="toolbar"><button type="button" id="pridat_schod">' . StrankaUctu::ikona('plus') . 'Přidat schod</button><span id="kontrola_schodu" class="chyba-text" role="status"></span></div><p id="varovani_profilu" class="chyba-text" role="status"></p>';
+    echo '<div class="toolbar"><button type="button" id="pridat_schod">' . StrankaUctu::ikona('plus') . 'Přidat schod</button><span id="kontrola_schodu" class="chyba-text" role="status"></span></div>';
 
     echo '<div class="pole" style="margin-top: 14px;"><label for="t_poznamka">Odkud hodnoty jsou (měření, dokumentace výrobce)</label><textarea id="t_poznamka" name="poznamka" rows="3" maxlength="' . TiskarnyDb::MAX_DELKA_POZNAMKY . '" style="width: 100%;">' . $h($f['poznamka']) . '</textarea>' . (isset($chyby['poznamka']) ? '<span class="chyba">' . $h($chyby['poznamka']) . '</span>' : '') . '<span class="hint">Admin podle toho posoudí návrh na zveřejnění.</span></div>';
     if (!$uprava && (string)($f['nahrazuje'] ?? '') !== '') {
@@ -468,18 +468,6 @@ if ($stranka === 'tiskarna') {
       vstup.setAttribute('aria-invalid', spatne ? 'true' : 'false');
     });
     document.getElementById('kontrola_schodu').textContent = chyba;
-    // Varování (neblokuje): schod užší než hlava pod ním, viz TiskarnyDb::varovaniProfilu.
-    var pod = {}, uzsi = [];
-    ['Xl', 'Xr', 'Yl', 'Yr'].forEach(function (k) { pod[k] = parseFloat(document.getElementById('t_' + k).value) || 0; });
-    tbody.querySelectorAll('tr[data-schod]').forEach(function (tr, i) {
-      ['Xl', 'Xr', 'Yl', 'Yr'].forEach(function (k) {
-        var v = parseFloat(tr.querySelector('input[name$="[' + k + ']"]').value);
-        if (!isFinite(v)) return;
-        if (v < pod[k] && uzsi.indexOf(i + 1) < 0) uzsi.push(i + 1);
-        pod[k] = Math.max(pod[k], v);
-      });
-    });
-    document.getElementById('varovani_profilu').textContent = uzsi.length ? ('Pozor: schod ' + uzsi.join(', ') + ' je užší než hlava pod ním. Kontrola kolizí bere pro dřívější kus jen schod pro jeho výšku, takže širší spodní část hlavy může přehlédnout. Bezpečné je zadat obálku (každý schod aspoň tak široký jako vše pod ním).') : '';
     return chyba === '';
   }
   document.getElementById('pridat_schod').addEventListener('click', function () {
@@ -521,7 +509,7 @@ if ($stranka === 'schvalovani') {
     $hodnoty_tiskarny = function (array $t) use ($h): string {
         $schody = empty($t['head_steps']) ? 'bez schodů' : implode('; ', array_map(function ($s) { return 'od ' . $s['z'] . ' mm: ' . $s['Xl'] . ' / ' . $s['Xr'] . ' / ' . $s['Yl'] . ' / ' . $s['Yr']; }, $t['head_steps']));
         return 'Podložka ' . $h($t['x'] . ' × ' . $t['y'] . ' × ' . $t['z']) . ' mm, korekce zprava ' . $h($t['posun_zprava']) . '<br />Hlava Xl / Xr / Yl / Yr: ' . $h($t['Xl'] . ' / ' . $t['Xr'] . ' / ' . $t['Yl'] . ' / ' . $t['Yr'])
-            . '<br />Schody: ' . $h($schody) . (empty($v = TiskarnyDb::varovaniProfilu($t)) ? '' : '<br /><span class="chyba-text">Pozor, profil se nahoru zužuje: ' . $h(implode(' ', $v)) . '</span>') . '<br />Vodicí tyče Z / Y: ' . $h($t['vodici_tyce_Z'] . ' / ' . $t['vodici_tyce_Y']) . ($t['poznamka'] !== '' ? '<br /><span class="muted">Zdroj: ' . nl2br($h($t['poznamka'])) . '</span>' : '');
+            . '<br />Schody: ' . $h($schody) . '<br />Vodicí tyče Z / Y: ' . $h($t['vodici_tyce_Z'] . ' / ' . $t['vodici_tyce_Y']) . ($t['poznamka'] !== '' ? '<br /><span class="muted">Zdroj: ' . nl2br($h($t['poznamka'])) . '</span>' : '');
     };
     $tlacitko = function (string $akce, int $id, string $popis, string $ikona, string $trida = 'small'): string {
         return '<form method="post" action="ucet.php?stranka=schvalovani" class="inline">' . StrankaUctu::csrfPole() . '<input type="hidden" name="akce" value="' . $akce . '" /><input type="hidden" name="id" value="' . $id . '" /><button class="' . $trida . '" type="submit">' . StrankaUctu::ikona($ikona) . $popis . '</button></form>';
